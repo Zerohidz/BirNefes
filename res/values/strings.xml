@@ -1,0 +1,1 @@
+<resources><string name="service_description">İstisna listesi dışındaki bir uygulama açıldığında 30 saniyelik mola gösterir. Açılan uygulamaların paket adlarını cihazda geçici olarak karşılaştırır. Mesajları veya ekran içeriğini okumaz, kaydetmez ya da göndermez. Ana ekran düğmesiyle her zaman çıkabilirsiniz.</string></resources>

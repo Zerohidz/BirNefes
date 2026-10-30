@@ -1,0 +1,26 @@
+[Unit]
+Description=Bir Nefes shared WhatsApp quota
+After=network.target
+
+[Service]
+Type=simple
+User=bir-nefes
+Group=bir-nefes
+WorkingDirectory=/opt/bir-nefes
+ExecStart=/usr/bin/python3 /opt/bir-nefes/app.py
+Restart=on-failure
+RestartSec=3
+StateDirectory=bir-nefes
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/bir-nefes
+
+[Install]
+WantedBy=multi-user.target

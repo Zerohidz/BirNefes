@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.birnefes.qa.pane" android:versionCode="1" android:versionName="test">
+ <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="36"/>
+ <application android:label="QA delayed pane fixture" android:theme="@android:style/Theme.Material.NoActionBar">
+  <activity android:name="qa.pane.PaneActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+ </application>
+</manifest>

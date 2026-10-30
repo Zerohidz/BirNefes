@@ -1,0 +1,6 @@
+.build/
+artifacts/
+*.jks
+local.properties
+__pycache__/
+*.pyc

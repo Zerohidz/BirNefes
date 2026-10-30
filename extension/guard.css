@@ -1,0 +1,2 @@
+/* Fail closed before the first DOM paint. No message content is inspected. */
+html:not([data-birnefes-allowed]) body { visibility: hidden !important; }
