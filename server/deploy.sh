@@ -26,6 +26,12 @@ p=pathlib.Path('/etc/nginx/sites-available/zmanga')
 # Use the real target of sites-enabled, which may not be sites-available.
 p=pathlib.Path('/etc/nginx/sites-enabled/zmanga').resolve()
 s=p.read_text()
+# A 200-character release reason can exceed 1k once JSON-escaped.
+if 'location ^~ /bir-nefes/' in s and 'client_max_body_size 1k;' in s.split('location ^~ /bir-nefes/',1)[1].split('}',1)[0]:
+ shutil.copy2(p,str(p)+'.bir-nefes-backup-'+str(int(time.time())))
+ head,tail=s.split('location ^~ /bir-nefes/',1)
+ s=head+'location ^~ /bir-nefes/'+tail.replace('client_max_body_size 1k;','client_max_body_size 4k;',1)
+ p.write_text(s)
 if 'location ^~ /bir-nefes/' not in s:
  backup=str(p)+'.bir-nefes-backup-'+str(int(time.time()))
  shutil.copy2(p,backup)
@@ -33,7 +39,7 @@ if 'location ^~ /bir-nefes/' not in s:
  assert marker in s, 'Expected existing root proxy location'
  block='''location ^~ /bir-nefes/ {
           limit_req zone=bir_nefes burst=15 nodelay;
-          client_max_body_size 1k;
+          client_max_body_size 4k;
           proxy_pass http://127.0.0.1:8765/;
           proxy_set_header Host $host;
           proxy_connect_timeout 3s;

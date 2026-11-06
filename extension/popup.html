@@ -1,6 +1,15 @@
 <!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Bir Nefes</title><link rel="stylesheet" href="popup.css"></head><body><main>
 <h1>Bir Nefes</h1><p class="sub">Ekranına ayırdığın zamanı seç.</p>
-<section><h2>Telefon + mesajlaşma</h2><p id="status" role="status">Hakların kontrol ediliyor…</p><p id="detail"></p><small>WhatsApp · Telegram<br>Günde 5 × 15 dakika · Önce 30 saniye<br>22.30–03.00: kalan haklardan biri, 5 dakika</small></section>
-<section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><small>YouTube · tranimeizle · fullhdfilmizlesene<br>05.00–08.00 ve 17.00–22.30 serbest<br>08.00–17.00 toplam 15 dakika<br>22.30–05.00 kapalı</small></section>
-<p id="urgent"></p><a href="https://web.whatsapp.com/" target="_blank" rel="noopener">WhatsApp Web’i aç</a><small>Günlük yenileme 03.00 · İstanbul saati<br>Acele: ayda 4 × 15 dakika · Beklemeden<br>Aylık yenileme: ayın 1’i, 03.00</small>
+<div id="join" hidden>
+<section><h2>Telefondaki kodu gir</h2><p class="hint">Telefonda Bir Nefes’i aç, eşleştirme kodunu al ve buraya yaz.</p><form id="pair-form"><input id="code" autocomplete="off" spellcheck="false" maxlength="12" placeholder="ABCD-EFGH" aria-label="Eşleştirme kodu"><button id="pair">Bağlan</button></form></section>
+<section><h2>İlk cihazın bu mu?</h2><p class="hint">Yeni bir hesap aç. Sonra telefonunu bu hesaba bağlarsın.</p><button id="register" class="ghost">Yeni hesap oluştur</button></section>
+<p id="join-status" role="status"></p>
+</div>
+<div id="quota" hidden>
+<section><h2>Telefon + mesajlaşma</h2><p id="status" role="status">Hakların kontrol ediliyor…</p><p id="detail"></p><small>WhatsApp · Telegram<br>Günde 5 × 20 dakika · Önce 30 saniye<br>22.30–03.00: kalan haklardan biri, 5 dakika</small></section>
+<section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><small>YouTube · tranimeizle · fullhdfilmizlesene<br>05.00–08.00 ve 17.00–22.30 serbest<br>08.00–17.00 toplam 20 dakika<br>22.30–05.00 kapalı</small></section>
+<p id="urgent"></p><a href="https://web.whatsapp.com/" target="_blank" rel="noopener">WhatsApp Web’i aç</a>
+<section><h2>Telefon</h2><button id="link-phone" class="ghost">Telefonu bağla</button><div id="pair-code" hidden><output id="code-value" aria-live="polite"></output><p id="code-time"></p><p class="hint">Telefondaki Bir Nefes’te bu kodu gir.</p></div><p id="link-status" role="status"></p><button id="switch" class="link">Başka hesaba bağlan</button></section>
+<small>Günlük yenileme 03.00 · İstanbul saati<br>Acele: ayda 4 × 20 dakika · Beklemeden<br>Aylık yenileme: ayın 1’i, 03.00</small>
+</div>
 </main><script src="popup.js"></script></body></html>

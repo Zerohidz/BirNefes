@@ -30,13 +30,13 @@
       chrome.runtime.sendMessage({operation:'audio',blocked:!allowed}).catch(() => { lastMuted = undefined; });
     }
     if (document.body) document.body.inert = !allowed;
-    const titles = {connecting:'Hakların kontrol ediliyor…', waiting:'Bir nefes al.', expired:'Kullanım süren doldu.', exhausted:'Bugünkü hakkın bitti.', error:'Sunucuya ulaşılamadı.'};
+    const titles = {connecting:'Hakların kontrol ediliyor…', waiting:'Bir nefes al.', expired:'Kullanım süren doldu.', exhausted:'Bugünkü hakkın bitti.', error:'Sunucuya ulaşılamadı.', unpaired:'Bir Nefes’i eşleştir.'};
     $('title').textContent = titles[state] || '';
-    $('detail').textContent = state === 'waiting' ? 'Şu an bu siteye neden giriyorsun?' : state === 'connecting' ? 'Telefon ve bilgisayar aynı hakkı paylaşır.' : state === 'error' ? 'Bağlantını kontrol edip yeniden gir.' : 'Ekrandan ayrılma zamanı.';
-    $('note').textContent = state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : 'Birazdan devam edeceksin.';
+    $('detail').textContent = state === 'waiting' ? 'Şu an bu siteye neden giriyorsun?' : state === 'connecting' ? 'Telefon ve bilgisayar aynı hakkı paylaşır.' : state === 'error' ? 'Bağlantını kontrol edip yeniden gir.' : state === 'unpaired' ? 'Eklenti simgesine tıkla.' : 'Ekrandan ayrılma zamanı.';
+    $('note').textContent = state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : state === 'unpaired' ? 'Telefondaki kodu gir ya da yeni hesap oluştur. Sonra bu sayfayı yenile.' : 'Birazdan devam edeceksin.';
     $('count').hidden = state !== 'waiting';
-    $('urgent').hidden = allowed || state === 'connecting' || emergencyRemaining === 0;
-    $('urgent').textContent = confirming ? 'Aylık 1 hakkı kullan ve aç' : `Acele geçişi · 15 dakika${emergencyRemaining >= 0 ? ` · ${emergencyRemaining}/4 kaldı` : ''}`;
+    $('urgent').hidden = allowed || state === 'connecting' || state === 'unpaired' || emergencyRemaining === 0;
+    $('urgent').textContent = confirming ? 'Aylık 1 hakkı kullan ve aç' : `Acele geçişi · 20 dakika${emergencyRemaining >= 0 ? ` · ${emergencyRemaining}/4 kaldı` : ''}`;
     $('urgent-note').hidden = $('urgent').hidden;
     $('urgent-note').textContent = 'Günlük hakkından düşmez. Ayda 4 kez; ayın 1’inde 03.00’te yenilenir. İnternet gerekir.';
     if (!allowed) stopMedia();
@@ -64,7 +64,7 @@
       if (current !== generation) return;
       pollAt = performance.now() + 5000;
       if (operation === 'status' && (state !== 'allowed' || expired())) { render('expired'); return; }
-      if (!result || result.error) { if (state !== 'allowed') render('error'); return; }
+      if (!result || result.error) { if (state !== 'allowed') render(result?.error === 'unpaired' ? 'unpaired' : 'error'); return; }
       emergencyRemaining = Number.isInteger(result.emergencyRemaining) ? result.emergencyRemaining : -1;
       if (result.state === 'allowed') {
         if (operation === 'status' && result.session !== session) { render('expired'); return; }

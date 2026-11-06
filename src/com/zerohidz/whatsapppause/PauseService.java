@@ -1,9 +1,11 @@
 package com.zerohidz.whatsapppause;
 
 import android.accessibilityservice.AccessibilityService;
+import android.app.KeyguardManager;
 import android.content.*;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.media.AudioManager;
 import android.os.*;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
@@ -14,20 +16,43 @@ public final class PauseService extends AccessibilityService {
     static PauseService instance;
     private DelayGate gate;
     private final WindowEventGate eventGate = new WindowEventGate();
+    private final CallScreenGate calls = new CallScreenGate();
+    private CallWatcher callWatcher;
+    private AudioManager audio;
     private AppPolicy policy;
     private long policyRefresh;
     private RemoteGate remote;
     private SharedPreferences preferences;
     private String savedState = "";
     private DelayGate.State overlayState;
+    private long connectingGraceUntil;
+    // Leaves room for the normal window event of the app returning after a call.
+    private static final long AFTER_CALL_MS = 1500;
+    // Longer than the call screen's window event after an answer, about 0.9 s when measured.
+    private static final long AFTER_ANSWER_MS = 2500;
+    private final Runnable afterAnswer = () -> {
+        boolean locked = ((KeyguardManager) getSystemService(KEYGUARD_SERVICE)).isKeyguardLocked();
+        if (calls.recheckAfterAnswer(locked) && currentState() == DelayGate.State.AWAY) enterRestricted();
+    };
+    private final Runnable afterCall = () -> {
+        boolean locked = ((KeyguardManager) getSystemService(KEYGUARD_SERVICE)).isKeyguardLocked();
+        if (calls.recheckAfterCall(locked, callActive()) && currentState() == DelayGate.State.AWAY) enterRestricted();
+    };
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WindowManager windows;
     private ScrollView overlay;
     private TextView countdown;
     private final BroadcastReceiver screenOff = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
+            String action = i.getAction();
+            boolean call = callActive();
+            if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                if (calls.screenOn(((KeyguardManager) getSystemService(KEYGUARD_SERVICE)).isKeyguardLocked(), call)) goHome();
+                return;
+            }
+            if (Intent.ACTION_SCREEN_OFF.equals(action)) calls.screenOff(currentState() != DelayGate.State.AWAY);
             leave();
-            if (Intent.ACTION_USER_PRESENT.equals(i.getAction())) performGlobalAction(GLOBAL_ACTION_HOME);
+            if (Intent.ACTION_USER_PRESENT.equals(action) && !call) performGlobalAction(GLOBAL_ACTION_HOME);
         }
     };
     private final Runnable tick = new Runnable() {
@@ -45,15 +70,41 @@ public final class PauseService extends AccessibilityService {
         preferences = getSharedPreferences("usage", MODE_PRIVATE);
         gate = new DelayGate(preferences.getString("day", ""), preferences.getInt("used", 0),
             preferences.getBoolean("nightUsed", false), preferences.getLong("end", 0));
-        if (SyncConfig.ENABLED) remote = new RemoteGate();
+        if (SyncConfig.ENABLED) remote = new RemoteGate(this);
         windows = (WindowManager) getSystemService(WINDOW_SERVICE);
+        audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (callWatcher == null) callWatcher = new CallWatcher(this, this::onCallState);
+        callWatcher.start();
         IntentFilter screenFilter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         screenFilter.addAction(Intent.ACTION_USER_PRESENT);
+        screenFilter.addAction(Intent.ACTION_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(screenOff, screenFilter, RECEIVER_EXPORTED);
         else registerReceiver(screenOff, screenFilter);
         // A reconnect cannot reliably identify an already open foreground window
         // without content access. Return home so the next entry is checked.
-        if (remote != null || gate.end() > 0) performGlobalAction(GLOBAL_ACTION_HOME);
+        if ((remote != null || gate.end() > 0) && !callActive()) performGlobalAction(GLOBAL_ACTION_HOME);
+    }
+    /** Lets MainActivity attach the watcher to a running service after the permission result. */
+    public void refreshCallWatcher() { if (callWatcher != null) callWatcher.start(); }
+    private void onCallState(int state) {
+        boolean changed = calls.onCallState(state);
+        // The call screen's window event can lag behind this report, and a blocker drawn
+        // now would cover the answered call. Returning to the app starts a new check.
+        if (calls.answered() && currentState() != DelayGate.State.ALLOWED) {
+            leave();
+            handler.removeCallbacks(afterAnswer);
+            handler.postDelayed(afterAnswer, AFTER_ANSWER_MS);
+        }
+        else if (changed) render(currentState());
+        if (calls.ended()) { handler.removeCallbacks(afterCall); handler.postDelayed(afterCall, AFTER_CALL_MS); }
+    }
+    private boolean audioCall() {
+        int mode = audio == null ? AudioManager.MODE_NORMAL : audio.getMode();
+        return mode == AudioManager.MODE_RINGTONE || mode == AudioManager.MODE_IN_CALL;
+    }
+    private boolean callActive() { return calls.callActive(audioCall()); }
+    private boolean overlaySuppressed() {
+        return calls.suppressOverlay((callWatcher == null || !callWatcher.active()) && audioCall());
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         if (gate == null) return;
@@ -63,7 +114,9 @@ public final class PauseService extends AccessibilityService {
         String pkg = event.getPackageName().toString();
         // Only package identity is read. No event text, root nodes, screenshots or logging.
         if (pkg.equals(getPackageName())) {
-            if (MainActivity.class.getName().contentEquals(event.getClassName() == null ? "" : event.getClassName())) {
+            // Any of our own Activities, not the overlay or a dialog window.
+            if (policy.activityWindow(pkg, event.getClassName())) {
+                calls.window(false);
                 if (eventGate.allowedWindow(event.getEventTime())) leave();
             }
             return;
@@ -72,13 +125,32 @@ public final class PauseService extends AccessibilityService {
         InputMethodManager input = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         for (android.view.inputmethod.InputMethodInfo method : input.getEnabledInputMethodList())
             if (pkg.equals(method.getPackageName())) return;
+        // Guardian lock: the windows that would switch Bir Nefes off are covered, by class name only.
+        if (LockRules.covers(pkg, event.getClassName()) && Account.locked(this)) {
+            if (eventGate.restrictedWindow(event.getEventTime(), true)) showLock();
+            return;
+        }
         if (SystemClock.elapsedRealtime() >= policyRefresh) { policy.refresh(); policyRefresh = SystemClock.elapsedRealtime() + 5000; }
-        if (policy.allowed(pkg)) {
+        if (policy.allowed(pkg) || (policy.picker(pkg) && PickerPass.active(SystemClock.elapsedRealtime()))) {
+            if (policy.callScreen(pkg)) calls.callScreenWindow(); else calls.window(false);
             if (eventGate.allowedWindow(event.getEventTime())) leave();
             return;
         }
         if (!eventGate.restrictedWindow(event.getEventTime(), policy.activityWindow(pkg, event.getClassName()))) return;
-        if (remote != null) { remote.enter(); render(remote.state()); }
+        calls.window(true);
+        enterRestricted();
+    }
+    /** A fresh entry is checked quietly; the blocker waits this long for the server's answer. */
+    private long checkDelay() {
+        return CheckDelay.normalize(getSharedPreferences(CheckDelay.PREFERENCES, MODE_PRIVATE).getLong(CheckDelay.KEY, CheckDelay.DEFAULT_MS));
+    }
+    private void enterRestricted() {
+        if (remote != null) {
+            // Only a real AWAY entry starts the grace, so app switching cannot keep extending it.
+            if (remote.state() == DelayGate.State.AWAY) connectingGraceUntil = SystemClock.elapsedRealtime() + checkDelay();
+            remote.enter();
+            render(remote.state());
+        }
         else render(gate.enter(System.currentTimeMillis(), SystemClock.elapsedRealtime(), java.time.ZoneId.systemDefault()));
         save();
         handler.removeCallbacks(tick);
@@ -102,6 +174,7 @@ public final class PauseService extends AccessibilityService {
         // Set the guard before detaching our overlay: its removal can expose
         // the old app briefly while Android is still switching to the launcher.
         eventGate.returningHome(SystemClock.uptimeMillis());
+        calls.window(false);
         leave();
         performGlobalAction(GLOBAL_ACTION_HOME);
     }
@@ -112,12 +185,32 @@ public final class PauseService extends AccessibilityService {
         removeOverlay();
     }
     private void render(DelayGate.State state) {
-        if (state == DelayGate.State.ALLOWED || state == DelayGate.State.AWAY) { removeOverlay(); return; }
+        if (state == DelayGate.State.ALLOWED || state == DelayGate.State.AWAY || overlaySuppressed()) { removeOverlay(); return; }
+        if (state == DelayGate.State.CONNECTING && overlay == null && SystemClock.elapsedRealtime() < connectingGraceUntil) return;
         if (overlay == null || overlayState != state) showOverlay(state);
         if (state == DelayGate.State.WAITING && countdown != null)
             countdown.setText(String.valueOf(((remote == null ? gate.remaining(SystemClock.elapsedRealtime()) : remote.remaining(SystemClock.elapsedRealtime())) + 999) / 1000));
     }
-    private void showOverlay(DelayGate.State state) {
+    /** The guardian lock screen. It never touches the quota: no right is used and no timer runs. */
+    private void showLock() {
+        leave();
+        LinearLayout content = openOverlay(null);
+        content.addView(label("Bu ayar kilitli.", 32));
+        content.addView(label("Kardeşinden izin iste.", 18));
+        Button home = Ui.primary(this, "Ana sayfaya dön");
+        home.setOnClickListener(v -> goHome());
+        content.addView(home);
+        Button ask = Ui.secondary(this, "İzin iste");
+        ask.setOnClickListener(v -> {
+            leave();
+            startActivity(new Intent(this, MainActivity.class).putExtra(MainActivity.ASK_RELEASE, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        });
+        content.addView(ask);
+        attachOverlay();
+    }
+    /** A fresh, empty blocker; state is null for the lock screen. */
+    private LinearLayout openOverlay(DelayGate.State state) {
         removeOverlay();
         overlayState = state;
         overlay = new ScrollView(this);
@@ -125,7 +218,8 @@ public final class PauseService extends AccessibilityService {
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setGravity(Gravity.CENTER);
-        content.setPadding(30, 60, 30, 60);
+        int side = Ui.dp(this, 24);
+        content.setPadding(side, side, side, side);
         overlay.addView(content);
         overlay.setOnApplyWindowInsetsListener((view, insets) -> {
             android.graphics.Insets bars = Build.VERSION.SDK_INT >= 30
@@ -135,6 +229,10 @@ public final class PauseService extends AccessibilityService {
             return insets;
         });
         overlay.setBackgroundColor(Color.rgb(10, 20, 27));
+        return content;
+    }
+    private void showOverlay(DelayGate.State state) {
+        LinearLayout content = openOverlay(state);
         boolean waiting = state == DelayGate.State.WAITING;
         boolean connecting = state == DelayGate.State.CONNECTING;
         boolean offline = state == DelayGate.State.ERROR;
@@ -151,13 +249,11 @@ public final class PauseService extends AccessibilityService {
         content.addView(label(connecting ? "Birazdan devam edeceksin." : offline ? "Bağlantı kurulmadan yeni kullanım hakkı açılamaz." : waiting ? "30 saniyelik mola bitince otomatik devam edeceksin."
             : state == DelayGate.State.EXPIRED ? "Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar."
             : "Hakların her gün 03.00’te yenilenir.", 16));
-        Button home = new Button(this); home.setText("Ana sayfaya dön");
+        Button home = Ui.primary(this, "Ana sayfaya dön");
         home.setOnClickListener(v -> goHome());
         content.addView(home);
         if (remote != null && !connecting && remote.emergencyRemaining() != 0) {
-            Button urgent = new Button(this);
-            urgent.setAllCaps(false);
-            urgent.setText("Acele geçişi · 15 dakika" + (remote.emergencyRemaining() >= 0 ? " · " + remote.emergencyRemaining() + "/4 kaldı" : ""));
+            Button urgent = Ui.secondary(this, "Acele geçişi · 20 dakika" + (remote.emergencyRemaining() >= 0 ? " · " + remote.emergencyRemaining() + "/4 kaldı" : ""));
             urgent.setOnClickListener(v -> {
                 urgent.setText("Aylık 1 hakkı kullan ve aç");
                 urgent.setOnClickListener(confirm -> { remote.emergency(); render(remote.state()); });
@@ -165,6 +261,9 @@ public final class PauseService extends AccessibilityService {
             content.addView(urgent);
             content.addView(label("Günlük hakkından düşmez. Ayda 4 kez; ayın 1’inde 03.00’te yenilenir. İnternet gerekir.", 14));
         }
+        attachOverlay();
+    }
+    private void attachOverlay() {
         overlay.setFocusableInTouchMode(true);
         overlay.setOnKeyListener((v, key, event) -> {
             if (key == KeyEvent.KEYCODE_BACK && event.getAction() == KeyEvent.ACTION_UP) {
@@ -190,9 +289,13 @@ public final class PauseService extends AccessibilityService {
             try { windows.removeView(overlay); } catch (IllegalArgumentException ignored) { /* Already detached by system. */ }
             overlay = null;
         }
+        countdown = null;
     }
     @Override public void onInterrupt() { leave(); }
     @Override public void onDestroy() {
+        if (callWatcher != null) callWatcher.stop();
+        handler.removeCallbacks(afterCall);
+        handler.removeCallbacks(afterAnswer);
         leave(); if (remote != null) remote.close(); instance = null;
         try { unregisterReceiver(screenOff); } catch (IllegalArgumentException ignored) { /* Service was not connected. */ }
         super.onDestroy();

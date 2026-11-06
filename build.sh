@@ -5,12 +5,20 @@ cd "$(dirname "$0")"
 task_tools="$ANDROID_SDK_ROOT/build-tools/36.0.0"
 task_android="$ANDROID_SDK_ROOT/platforms/android-36/android.jar"
 task_version=$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("AndroidManifest.xml").getroot().attrib["{http://schemas.android.com/apk/res/android}versionName"])')
-task_apk="artifacts/BirNefes-${task_version}-test.apk"
+# BIRNEFES_PUBLIC=1: no personal token, for anyone. BIRNEFES_TEST_HTTP=1: cleartext to a local test server.
+task_manifest=AndroidManifest.xml
+if [ "${BIRNEFES_TEST_HTTP:-}" = 1 ]; then task_apk="artifacts/BirNefes-${task_version}-http-test.apk"
+elif [ "${BIRNEFES_PUBLIC:-}" = 1 ]; then task_apk="artifacts/BirNefes-${task_version}.apk"
+else task_apk="artifacts/BirNefes-${task_version}-test.apk"; fi
 rm -rf .build/classes .build/dex
 mkdir -p .build/classes .build/dex .build/generated artifacts
 python3 scripts/generate-sync-config.py
+if [ "${BIRNEFES_TEST_HTTP:-}" = 1 ]; then
+ task_manifest=.build/AndroidManifest-http.xml
+ sed 's/<application /<application android:usesCleartextTraffic="true" /' AndroidManifest.xml > "$task_manifest"
+fi
 "$task_tools/aapt2" compile --dir res -o .build/resources.zip
-"$task_tools/aapt2" link -o .build/base.apk -I "$task_android" --manifest AndroidManifest.xml .build/resources.zip
+"$task_tools/aapt2" link -o .build/base.apk -I "$task_android" --manifest "$task_manifest" .build/resources.zip
 javac --release 17 -classpath "$task_android" -d .build/classes src/com/zerohidz/whatsapppause/*.java .build/generated/SyncConfig.java
 jar --create --file .build/classes.jar -C .build/classes .
 "$task_tools/d8" --lib "$task_android" --min-api 29 --output .build/dex .build/classes.jar

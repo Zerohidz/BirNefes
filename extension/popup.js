@@ -1,3 +1,4 @@
+async function showQuota() {
 (async () => {
   const status=document.getElementById('status'), detail=document.getElementById('detail');
   try {
@@ -18,3 +19,55 @@
     detail.textContent='Bu süre mesajlaşma haklarından ayrıdır. Sekmeden ayrılınca sayaç durur.';
   } catch {status.textContent='Süre kontrol edilemedi';detail.textContent='Sunucu bağlantısını kontrol et.';}
 })();
+}
+
+const $ = id => document.getElementById(id);
+const send = message => chrome.runtime.sendMessage(message).catch(() => ({error:'offline'}));
+const failures = {offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
+
+async function joined(button, message) {
+  const status = $('join-status');
+  button.disabled = true; status.textContent = '';
+  const r = await send(message);
+  button.disabled = false;
+  if (r?.paired) return show(true);
+  status.textContent = failures[r?.error] || failures.offline;
+}
+
+let timer;
+$('link-phone').addEventListener('click', async () => {
+  const button = $('link-phone');
+  button.disabled = true; $('link-status').textContent = '';
+  const r = await send({operation:'pair-code'});
+  button.disabled = false;
+  if (!r?.code) { $('link-status').textContent = failures[r?.error] || failures.offline; return; }
+  const end = Date.now() + r.ttl;
+  $('code-value').textContent = r.code.length === 8 ? `${r.code.slice(0,4)}-${r.code.slice(4)}` : r.code;
+  $('pair-code').hidden = false; button.hidden = true; $('pair-code').scrollIntoView({block:'center'});
+  clearInterval(timer);
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((end - Date.now())/1000));
+    $('code-time').textContent = `${Math.floor(left/60)}:${String(left%60).padStart(2,'0')} içinde geçerli · Tek kullanımlık`;
+    if (!left) { clearInterval(timer); $('pair-code').hidden = true; button.hidden = false; button.textContent = 'Yeni kod al'; }
+  };
+  tick(); timer = setInterval(tick, 1000);
+});
+$('switch').addEventListener('click', async () => {
+  if (!confirm('Bu bilgisayar mevcut hesaptan çıkacak. Telefonun bu hesapta kalır. Devam edilsin mi?')) return;
+  await send({operation:'unpair'});
+  show(false);
+});
+$('pair-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const code = $('code').value.toUpperCase().replace(/[^A-Z]/g, '');
+  if (code.length !== 8) { $('join-status').textContent = 'Kod 8 harften oluşur.'; return; }
+  joined($('pair'), {operation:'pair', code});
+});
+$('register').addEventListener('click', () => joined($('register'), {operation:'register'}));
+
+function show(paired) {
+  $('join').hidden = paired; $('quota').hidden = !paired;
+  clearInterval(timer); $('pair-code').hidden = true; $('link-phone').hidden = false; $('link-status').textContent = '';
+  if (paired) showQuota(); else $('code').focus();
+}
+send({operation:'account'}).then(r => show(!!r?.paired));

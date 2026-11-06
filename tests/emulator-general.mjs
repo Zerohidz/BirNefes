@@ -77,7 +77,7 @@ try{
  for(let i=0;i<12;i++){await wait(1000);granted=await api();if(granted.state==='allowed'&&!focus().includes(pkg))break;}
  check(focus().includes('com.android.chrome')&&granted.sessionKind==='emergency','Second emergency click opens restricted app without a 30-second wait');
  check(granted.emergencyRemaining===3&&granted.used===5,'Emergency consumes exactly 1 of 4 monthly uses and no daily use');
- check(granted.expiresAt-granted.serverNow>860000&&granted.expiresAt-granted.serverNow<=900000,'Emergency grants a fixed fifteen-minute window');screenshot('emergency-open');
+ check(granted.expiresAt-granted.serverNow>1160000&&granted.expiresAt-granted.serverNow<=1200000,'Emergency grants a fixed twenty-minute window');screenshot('emergency-open');
  await home();await chrome();await wait(1000);let reentry=await api();
  check(focus().includes('com.android.chrome')&&reentry.expiresAt===granted.expiresAt&&reentry.emergencyRemaining===3,'Reentry preserves emergency deadline without consuming another use');
  mutate("UPDATE quota SET end=CAST(strftime('%s','now') AS INTEGER)*1000+2000;");await wait(7000);

@@ -43,16 +43,16 @@ try{
  await wait(32000);let normal=await api();
  for(let i=0;i<8&&focus().includes(pkg);i++){await wait(1000);normal=await api();}
  check(focus().includes('com.android.chrome')&&normal.used===1&&normal.sessionKind==='normal','Real 30-second countdown grants a normal window');
- check(normal.expiresAt-normal.serverNow>860000&&normal.expiresAt-normal.serverNow<=900000,'Normal phone window lasts 15 minutes');
+ check(normal.expiresAt-normal.serverNow>1160000&&normal.expiresAt-normal.serverNow<=1200000,'Normal phone window lasts 20 minutes');
  await home();await open();let repeated=await api();
- check(focus().includes('com.android.chrome')&&repeated.expiresAt===normal.expiresAt&&repeated.used===1,'Normal reentry preserves original 15-minute deadline');
+ check(focus().includes('com.android.chrome')&&repeated.expiresAt===normal.expiresAt&&repeated.used===1,'Normal reentry preserves original 20-minute deadline');
  await home();mutate('UPDATE quota SET end=0,used=5;');await open();await wait(1200);shot('exhausted');
  // Exhausted overlay has less content than WAITING; observed emergency button y1420.
  shell('input','tap','540','1420');await wait(500);check((await api()).emergencyRemaining===4,'First emergency click only requests confirmation');shot('emergency-confirm');
  shell('input','tap','540','1420');let emergency;
  for(let i=0;i<15;i++){await wait(1000);emergency=await api();if(emergency.state==='allowed'&&!focus().includes(pkg))break;}
  check(focus().includes('com.android.chrome')&&emergency.sessionKind==='emergency'&&emergency.emergencyRemaining===3&&emergency.used===5,'Emergency opens immediately and only consumes monthly quota');
- check(emergency.expiresAt-emergency.serverNow>860000&&emergency.expiresAt-emergency.serverNow<=900000,'Emergency phone window lasts 15 minutes');
+ check(emergency.expiresAt-emergency.serverNow>1160000&&emergency.expiresAt-emergency.serverNow<=1200000,'Emergency phone window lasts 20 minutes');
  mutate("UPDATE quota SET end=CAST(strftime('%s','now') AS INTEGER)*1000+2000;");await wait(8000);
  check(focus().includes(pkg),'Fixed emergency expiry blocks foreground app');shot('expired');
  shell('input','keyevent','4');await wait(2600);check(isHome(),'Expiry Back leaves launcher clear after 2 seconds');

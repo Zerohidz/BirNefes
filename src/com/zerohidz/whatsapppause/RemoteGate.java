@@ -1,12 +1,10 @@
 package com.zerohidz.whatsapppause;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import org.json.JSONObject;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -14,6 +12,8 @@ import java.util.concurrent.Executors;
 /** HTTPS quota client. Network work never runs on the accessibility thread. */
 public final class RemoteGate {
     private final Handler main = new Handler(Looper.getMainLooper());
+    private final Context context;
+    public RemoteGate(Context context) { this.context = context.getApplicationContext(); }
     private final ExecutorService network = Executors.newSingleThreadExecutor();
     private DelayGate.State state = DelayGate.State.AWAY;
     private long deadline, pollAt, generation, session;
@@ -52,35 +52,18 @@ public final class RemoteGate {
         network.execute(() -> {
             JSONObject response = null;
             for (int tries = 0; tries < (operation.equals("status") ? 1 : 2) && response == null; tries++) {
-            HttpURLConnection connection = null;
             try {
-                connection = (HttpURLConnection) new URL(SyncConfig.URL + "/v1/" + operation).openConnection();
-                connection.setConnectTimeout(10000); connection.setReadTimeout(10000);
-                connection.setInstanceFollowRedirects(false);
-                connection.setRequestProperty("Authorization", "Bearer " + SyncConfig.TOKEN);
-                if (!operation.equals("status")) {
-                    connection.setRequestMethod("POST"); connection.setDoOutput(true);
-                    connection.setRequestProperty("Content-Type", "application/json");
-                    byte[] body = new JSONObject().put("attempt", requestAttempt).toString().getBytes(StandardCharsets.UTF_8);
-                    connection.setFixedLengthStreamingMode(body.length);
-                    try (java.io.OutputStream out = connection.getOutputStream()) { out.write(body); }
-                }
-                int status = connection.getResponseCode();
-                if (status != 200) throw new java.io.IOException("HTTP " + status);
-                try (java.io.InputStream input = connection.getInputStream()) {
-                    java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-                    byte[] buffer = new byte[1024]; int size;
-                    while ((size = input.read(buffer)) != -1) {
-                        bytes.write(buffer, 0, size);
-                        if (bytes.size() > 8192) throw new java.io.IOException("Response too large");
-                    }
-                    response = new JSONObject(bytes.toString("UTF-8"));
-                }
+                Account.Response reply = Account.authorized(context, operation.equals("status") ? "GET" : "POST", "/v1/" + operation,
+                    operation.equals("status") ? null : new JSONObject().put("attempt", requestAttempt));
+                if (reply.status != 200) throw new java.io.IOException("HTTP " + reply.status);
+                response = reply.body;
+                // Status also carries the guardian lock; keep it for the service and the main screen.
+                if (operation.equals("status")) Account.rememberGuard(context, response.optJSONObject("guard"));
             } catch (Exception error) {
                 // Log only the exception class: no credentials, headers, or body.
                 android.util.Log.w("BirNefes", "Quota connection failed: " + error.getClass().getSimpleName());
                 response = null;
-            } finally { if (connection != null) connection.disconnect(); }
+            }
             }
             final JSONObject result = response;
             main.post(() -> {

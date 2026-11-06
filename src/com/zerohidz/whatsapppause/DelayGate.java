@@ -5,7 +5,7 @@ import java.time.*;
 /** Shared daily budget, renewed at local 03:00. Only completed countdowns consume a fixed usage window. */
 public final class DelayGate {
     public static final long DELAY_MS = 30_000;
-    public static final long SESSION_MS = 900_000;
+    public static final long SESSION_MS = 1_200_000;
     public static final long NIGHT_MS = 300_000;
     public enum State { AWAY, WAITING, ALLOWED, EXPIRED, EXHAUSTED, CONNECTING, ERROR }
     private String day = "";

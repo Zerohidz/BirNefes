@@ -1,6 +1,43 @@
 importScripts('config.js', 'sites.js');
 chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'});
 
+// The device token lives in storage. A token baked into config.js by an older
+// private package is moved there once; an empty stored token means unpaired.
+async function deviceToken() {
+  const {token} = await chrome.storage.local.get('token');
+  if (typeof token === 'string') return token;
+  await chrome.storage.local.set({token: BIRNEFES_CONFIG.token || ''});
+  return BIRNEFES_CONFIG.token || '';
+}
+
+async function account(message) {
+  const token = await deviceToken();
+  if (message.operation === 'account') return {paired: !!token};
+  if (message.operation === 'unpair') { await chrome.storage.local.set({token: ''}); return {paired: false}; }
+  const join = message.operation !== 'pair-code';
+  if (!join && !token) return {error: 'unpaired'};
+  const body = message.operation === 'pair' ? {code: String(message.code || ''), kind: 'chrome'} : {kind: 'chrome'};
+  const response = await fetch(`${BIRNEFES_CONFIG.url}/v1/${message.operation}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', ...(!join ? {Authorization: `Bearer ${token}`} : {})},
+    ...(join ? {body: JSON.stringify(body)} : {}),
+    cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
+  });
+  if (response.status === 403 && message.operation === 'pair') return {error: 'invalid_code'};
+  if (response.status === 401) return {error: 'unpaired'};
+  if (!response.ok) throw new Error('server');
+  const result = await response.json();
+  if (join) {
+    if (typeof result.token !== 'string' || !result.token) throw new Error('protocol');
+    await chrome.storage.local.set({token: result.token});
+    return {paired: true};
+  }
+  if (typeof result.code !== 'string' || !Number.isFinite(result.expiresAt)) throw new Error('protocol');
+  // Measure the lifetime on the server clock so a skewed computer clock does not matter.
+  const ttl = result.expiresAt - Date.parse(response.headers.get('Date'));
+  return {code: result.code, ttl: Number.isFinite(ttl) ? Math.min(600000, Math.max(0, ttl)) : 600000};
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const fromTarget = sender.tab && birNefesTarget(sender.url);
   const fromExtension = sender.url?.startsWith(chrome.runtime.getURL(''));
@@ -13,12 +50,18 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     chrome.tabs.update(sender.tab.id, {url: 'chrome://newtab/'}).then(() => reply({ok:true}), () => reply({error:'navigation'}));
     return true;
   }
+  if (['account','register','pair','pair-code','unpair'].includes(message?.operation)) {
+    if (!fromExtension) return false;
+    account(message).then(reply, () => reply({error: 'offline'}));
+    return true;
+  }
   if (!['enter','complete','status','emergency','video-enter','video-tick','video-stop','video-emergency','video-status'].includes(message?.operation)) return false;
   if (!fromTarget && !['status','video-status'].includes(message.operation)) return false;
   const isVideo = message.operation.startsWith('video-');
   if (fromTarget && isVideo !== (birNefesCategory(sender.url) === 'video')) return false;
   (async () => {
-    if (!BIRNEFES_CONFIG.token) return {error: 'unpaired'};
+    const token = await deviceToken();
+    if (!token) return {error: 'unpaired'};
     const operation = message.operation;
     const readOnly = operation === 'status' || operation === 'video-status';
     const started = performance.now();
@@ -26,13 +69,14 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     for (let tries=0; tries < (readOnly ? 1 : 2); tries++) {
     try { response = await fetch(`${BIRNEFES_CONFIG.url}/v1/${operation}`, {
       method: readOnly ? 'GET' : 'POST',
-      headers: {Authorization: `Bearer ${BIRNEFES_CONFIG.token}`, 'Content-Type': 'application/json'},
+      headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
       ...(!readOnly ? {body: JSON.stringify({attempt: message.attempt})} : {}),
       cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
     });
     break;
     } catch (error) { if (tries === (readOnly ? 0 : 1)) throw error; }
     }
+    if (response.status === 401) return {error: 'unpaired'};
     if (!response.ok) throw new Error('server');
     const result = await response.json();
     if (!Number.isFinite(result.serverNow) || !Number.isFinite(result.expiresAt)) throw new Error('protocol');
