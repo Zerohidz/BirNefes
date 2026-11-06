@@ -112,7 +112,8 @@ public final class PauseService extends AccessibilityService {
         // Pane appearance/disappearance is not an app foreground transition.
         if (event.getContentChangeTypes() != 0) return;
         String pkg = event.getPackageName().toString();
-        // Only package identity is read. No event text, root nodes, screenshots or logging.
+        // Package and class identity only. Event text is read solely for Settings screen titles
+        // while the guardian lock holds (see LockRules); nodes, screenshots and logging never.
         if (pkg.equals(getPackageName())) {
             // Any of our own Activities, not the overlay or a dialog window.
             if (policy.activityWindow(pkg, event.getClassName())) {
@@ -125,8 +126,9 @@ public final class PauseService extends AccessibilityService {
         InputMethodManager input = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         for (android.view.inputmethod.InputMethodInfo method : input.getEnabledInputMethodList())
             if (pkg.equals(method.getPackageName())) return;
-        // Guardian lock: the windows that would switch Bir Nefes off are covered, by class name only.
-        if (LockRules.covers(pkg, event.getClassName()) && Account.locked(this)) {
+        // Guardian lock: the windows that would switch Bir Nefes off are covered.
+        if ((LockRules.covers(pkg, event.getClassName()) || LockRules.coversTitle(pkg, event.getText()))
+                && Account.locked(this)) {
             if (eventGate.restrictedWindow(event.getEventTime(), true)) showLock();
             return;
         }

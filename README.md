@@ -194,7 +194,9 @@ another browser bypasses it. It is not parental control or an OS-level app lock.
 ## Privacy
 
 The Android service reads package identities only: no messages, accessibility
-window contents, gesture injection, or screenshots. With permission it also reads
+window contents, gesture injection, or screenshots. While the guardian lock is on, it
+also compares the title of Settings screens (for example "Uygulama bilgileri")
+to cover the pages that switch Bir Nefes off; titles are not stored or logged. With permission it also reads
 the call state (idle, ringing, in call) on the device; the phone number is never
 read, stored, logged or sent. The extension places an overlay
 and makes the underlying document inert; it does not inspect messages. HTTPS carries

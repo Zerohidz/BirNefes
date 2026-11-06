@@ -30,6 +30,18 @@ public class LockRulesTest {
   check(released.locked(5000),"saved release ends at its own time, offline too");
   LockRules.Guard stale=new LockRules.Guard("a***@x.com",false,true,9000,false,false);
   check(stale.locked(1000),"a saved lock wins over a saved release time");
+  java.util.List<CharSequence> t=new java.util.ArrayList<>();
+  t.add("Bir Nefes — ekran molası");
+  check(LockRules.coversTitle("com.android.settings",t),"Samsung service page by title");
+  t.set(0,"Uygulama bilgileri");
+  check(LockRules.coversTitle("com.android.settings",t),"Samsung app info by title");
+  t.set(0,"Wi-Fi");
+  check(!LockRules.coversTitle("com.android.settings",t),"Wi-Fi stays open");
+  t.set(0,"Erişilebilirlik");
+  check(!LockRules.coversTitle("com.android.settings",t),"accessibility list stays open");
+  t.set(0,"Bir Nefes — ekran molası");
+  check(!LockRules.coversTitle("com.whatsapp",t),"titles only count in Settings");
+  check(!LockRules.coversTitle("com.android.settings",null),"no text");
   System.out.println(checks+" lock rules checks passed");
  }
 }

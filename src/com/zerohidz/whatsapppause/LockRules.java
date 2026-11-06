@@ -2,7 +2,9 @@ package com.zerohidz.whatsapppause;
 
 /**
  * Guardian lock: which windows are covered and whether the lock holds. Pure Java so it
- * is unit tested without a device. Only the package and class name of a window are used.
+ * is unit tested without a device. The package and class name of a window are used, and for
+ * Settings, where Samsung opens every page as SubSettings, the screen title. Titles are only
+ * compared here, never stored or logged.
  */
 public final class LockRules {
     /** One rule: a package (or several) and a fragment of the window's class name. */
@@ -19,6 +21,21 @@ public final class LockRules {
         {"com.android.settings", "AppDetails"},
     };
     private LockRules() {}
+
+    /** Settings titles that lead to switching Bir Nefes off: its own service page and app info. */
+    private static final String[] TITLES = {
+        "Bir Nefes", "Uygulama bilgileri", "App info",
+    };
+    public static boolean settings(String pkg) { return "com.android.settings".equals(pkg); }
+    public static boolean coversTitle(String pkg, java.util.List<CharSequence> text) {
+        if (!settings(pkg) || text == null) return false;
+        for (CharSequence item : text) {
+            if (item == null) continue;
+            String title = item.toString();
+            for (String t : TITLES) if (title.startsWith(t)) return true;
+        }
+        return false;
+    }
 
     public static boolean covers(String pkg, CharSequence className) {
         if (pkg == null || className == null) return false;

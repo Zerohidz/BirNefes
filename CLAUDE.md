@@ -84,7 +84,7 @@ Production operations are in the README's "Server operations" section. `server/d
 
 ## Constraints
 
-- **Privacy is a product guarantee.** The accessibility service reads package identities only: `canRetrieveWindowContent` and `canPerformGestures` are false, and nothing reads event text, nodes, or screenshots. Call handling reads the call state only, never the number. Do not add these to solve a detection problem.
+- **Privacy is a product guarantee.** The accessibility service reads package identities only: `canRetrieveWindowContent` and `canPerformGestures` are false, and nothing reads event text, nodes, or screenshots. Call handling reads the call state only, never the number. One narrow exception: while the guardian lock holds, `LockRules` compares Settings window-state event titles (Samsung opens every Settings page as `SubSettings`); titles are never stored or logged. Do not add these to solve a detection problem.
 - **Credentials:** `SyncConfig.java` is generated into `.build/generated/` by `scripts/generate-sync-config.py`, and packaging injects the Chrome token into the copy of `config.js` under `artifacts/`. The source `extension/config.js` keeps an empty token. `.build/` and `artifacts/` are gitignored and hold real credentials; the server stores hashes only. With no `.build/sync-config.json`, `build.sh` now produces a synced APK against the default URL without a token; only `BIRNEFES_LOCAL_ONLY=1` or an explicit `BIRNEFES_SYNC_CONFIG` pointing at a missing file produce a local-only APK.
 - **Keep `.build/debug.jks`.** It is the signing identity that allows in-place updates.
 - **Do not reset the production database.** Rotating credentials means deploying new hashes and rebuilding both paired artifacts.
