@@ -16,8 +16,10 @@ public class CheckDelayTest {
   check(CheckDelay.label(1000).equals("1 sn"),"whole second label");
   check(CheckDelay.label(2500).equals("2,5 sn"),"decimal comma label");
   check(CheckDelay.label(3000).equals("3 sn"),"ceiling label");
-  check(Arrays.equals(CheckDelay.upTo(1500),new long[]{500,1000,1500}),"locked: only shorter or equal steps");
-  check(Arrays.equals(CheckDelay.upTo(500),new long[]{500}),"locked at the floor");
+  check(Arrays.equals(CheckDelay.upTo(1500),new long[]{500,1000,1500}),"locked: up to 1.5 s");
+  check(Arrays.equals(CheckDelay.upTo(1000),new long[]{500,1000,1500}),"locked at 1 s can still reach 1.5 s");
+  check(Arrays.equals(CheckDelay.upTo(500),new long[]{500,1000,1500}),"locked at the floor can still reach 1.5 s");
+  check(Arrays.equals(CheckDelay.upTo(2000),new long[]{500,1000,1500,2000}),"locked above 1.5 s only shrinks");
   check(Arrays.equals(CheckDelay.upTo(9999),CheckDelay.options()),"locked at the ceiling keeps every step");
   System.out.println(checks+" check delay checks passed");
  }

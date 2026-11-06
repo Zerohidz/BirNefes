@@ -140,7 +140,7 @@ Flow:
    chooses 1 hour, 24 hours, permanent removal or deny. Permanent removal deletes the
    guardian and the lock ends by itself on the next status answer.
 3. While locked, exceptions can be removed and exported but not added or imported,
-   and **Kontrol süresi** can only be shortened.
+   and **Kontrol süresi** can go up to 1.5 s at most (a longer value can only be shortened).
 4. While locked, the service covers these windows with a lock screen (**Bu ayar
    kilitli.**, **Ana sayfaya dön**, **İzin iste**). It reads only the package and
    class name of the window: accessibility settings, the package installer's

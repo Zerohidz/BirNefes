@@ -323,11 +323,11 @@ public final class MainActivity extends Activity {
         title.setPadding(padding, padding, padding, 0);
         title.addView(Ui.text(this, "Kontrol süresi", 20, true));
         title.addView(Ui.muted(this, "Kısıtlı uygulamaya girince engel ekranı sunucunun cevabını bu kadar bekler."
-            + (lock ? " Kilitliyken yalnız kısaltılabilir." : ""), 15), Ui.topMargin(this, 6));
+            + (lock ? " Kilitliyken en fazla 1,5 sn seçilebilir." : ""), 15), Ui.topMargin(this, 6));
         Ui.show(new AlertDialog.Builder(this).setCustomTitle(title)
             .setSingleChoiceItems(labels, current, (dialog, which) -> {
                 // The lock may have started while the list was open.
-                if (locked() && options[which] > storedCheckDelay()) { dialog.dismiss(); return; }
+                if (locked() && options[which] > CheckDelay.lockedCeiling(storedCheckDelay())) { dialog.dismiss(); return; }
                 settings.edit().putLong(CheckDelay.KEY, options[which]).apply();
                 showCheckDelay();
                 dialog.dismiss();
