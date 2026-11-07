@@ -269,14 +269,23 @@ public final class MainActivity extends Activity {
                 String code = input.getText().toString().trim();
                 showPair("", "Bağlanıyor…");
                 background(() -> {
-                    Account.Response response = Account.pair(this, code);
-                    runOnUiThread(() -> {
-                        showPair("", response.status == 200 ? "Bağlandı." : response.status == 403 || response.status == 400
-                            ? "Kod geçersiz ya da süresi doldu." : "Sunucuya ulaşılamadı.");
-                        if (response.status == 200) refreshQuota();
-                    });
+                    int status;
+                    try { status = Account.pair(this, code).status; }
+                    catch (java.io.IOException error) { status = 0; }
+                    int result = status;
+                    runOnUiThread(() -> pairResult(result));
                 }, true);
             }));
+    }
+    private void pairResult(int status) {
+        boolean paired = status == 200;
+        String message = paired ? "Bu telefon artık o hesabın haklarını kullanıyor."
+            : status == 403 || status == 400 ? "Kod geçersiz ya da süresi doldu. Yeni kod alıp tekrar dene."
+            : "Sunucuya ulaşılamadı. Bağlantını kontrol edip tekrar dene.";
+        showPair("", paired ? "Bağlandı." : message);
+        if (paired) refreshQuota();
+        if (!isFinishing()) Ui.show(new AlertDialog.Builder(this).setTitle(paired ? "Bağlandı" : "Bağlanamadı")
+            .setMessage(message).setPositiveButton("Tamam", null));
     }
     private interface Work { void run() throws Exception; }
     /** Network work off the main thread. A failure reads as an unreachable server where the user is waiting. */
