@@ -52,6 +52,9 @@ final class AppPolicy {
         collect(essential, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
         collect(essential, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CONTACTS));
         collect(essential, new Intent(android.provider.Settings.ACTION_SETTINGS));
+        // The installer must stay reachable so updates can be installed; uninstalling stays under LockRules.
+        java.util.Collections.addAll(essential, "com.android.packageinstaller", "com.google.android.packageinstaller");
+        collect(essential, new Intent(Intent.ACTION_VIEW).setDataAndType(android.net.Uri.parse("content://birnefes/update.apk"), "application/vnd.android.package-archive"));
         String sms = Telephony.Sms.getDefaultSmsPackage(context);
         if (sms != null) essential.add(sms);
         TelecomManager telecom = (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);

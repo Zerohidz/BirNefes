@@ -33,11 +33,15 @@ public final class MainActivity extends Activity {
     private EditText guardEmail;
     private Button guardAdd, guardChange;
     private SharedPreferences settings;
+    private LinearLayout updateCard;
+    private TextView updateTitle, updateNote;
+    private Button updateButton;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         settings = getSharedPreferences(CheckDelay.PREFERENCES, MODE_PRIVATE);
         page = Ui.page(this);
         page.addView(Ui.text(this, "Bir Nefes", 32, true));
+        page.addView(updateCard(), Ui.topMargin(this, 16));
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -372,6 +376,42 @@ public final class MainActivity extends Activity {
         restrictedNote.setVisibility(whenOff);
         showGuard(null);
     }
+    private LinearLayout updateCard() {
+        updateCard = new LinearLayout(this);
+        updateCard.setOrientation(LinearLayout.VERTICAL);
+        int padding = Ui.dp(this, 16);
+        updateCard.setPadding(padding, padding, padding, padding);
+        updateCard.setBackground(Ui.shape(this, Ui.SECONDARY, Ui.PRIMARY));
+        updateTitle = Ui.text(this, "", 18, true);
+        updateCard.addView(updateTitle);
+        updateNote = Ui.muted(this, "Kotan ve ayarların korunur.", 14);
+        updateCard.addView(updateNote, Ui.topMargin(this, 6));
+        updateButton = Ui.secondary(this, "Güncelle");
+        updateButton.setOnClickListener(v -> {
+            updateButton.setEnabled(false);
+            updateNote.setText(AppUpdate.install(this, () -> runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                updateButton.setEnabled(true);
+                updateNote.setText("Kurulum ekranında Güncelle’ye bas.");
+            })));
+            if (!updateNote.getText().toString().startsWith("İndir")) updateButton.setEnabled(true);
+        });
+        updateCard.addView(updateButton);
+        updateCard.setVisibility(View.GONE);
+        return updateCard;
+    }
+    private void showUpdate(AppUpdate.Release release) {
+        if (release == null) { updateCard.setVisibility(View.GONE); return; }
+        updateTitle.setText("Yeni sürüm: " + release.name);
+        updateCard.setVisibility(View.VISIBLE);
+    }
+    private void refreshUpdate() {
+        showUpdate(AppUpdate.cached(this));
+        network.execute(() -> {
+            AppUpdate.Release release = AppUpdate.check(this);
+            runOnUiThread(() -> { if (!isDestroyed()) showUpdate(release); });
+        });
+    }
     private void refreshCallPermission() {
         boolean granted = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED;
         int visibility = granted ? View.GONE : View.VISIBLE;
@@ -388,6 +428,7 @@ public final class MainActivity extends Activity {
         refreshCallPermission();
         showCheckDelay();
         refreshQuota();
+        refreshUpdate();
         if (getIntent().getBooleanExtra(ASK_RELEASE, false)) {
             getIntent().removeExtra(ASK_RELEASE);
             if (locked()) askRelease();

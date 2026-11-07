@@ -126,6 +126,17 @@ right, for at most five minutes. It never becomes a permanent exception.
 **Kontrol süresi** sets how long the blocker waits for the server's answer on a
 fresh entry: 0.5 to 3 seconds in half-second steps, 1 second by default.
 
+## Updates (Android 1.6.0)
+
+When the main screen opens, the app reads `https://birnefes.zerohidz.com/surum.json`
+(`{"versionCode": N, "versionName": "x.y.z"}`, at most once an hour). If `versionCode`
+is newer than the installed one, a card offers **Güncelle**: the app downloads
+`BirNefes-son.apk` (a link to the current APK) and opens the system installer. The
+first time, Android asks to allow installs from Bir Nefes. The package installer is an
+essential app so the blocker never covers it; uninstalling Bir Nefes stays locked.
+
+Each release uploads the APK, rewrites `surum.json` and repoints `BirNefes-son.apk`.
+
 ## Chromium lock (1.5.2)
 
 On Linux, `sudo sh scripts/install-chromium-lock.sh` writes a managed Chromium policy
