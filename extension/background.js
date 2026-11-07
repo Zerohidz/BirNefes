@@ -10,10 +10,28 @@ async function deviceToken() {
   return BIRNEFES_CONFIG.token || '';
 }
 
+// Leaving the account would also leave its guardian, so only the server can allow it.
+async function unpairRefusal(token) {
+  if (!token) return null;
+  const response = await fetch(`${BIRNEFES_CONFIG.url}/v1/status`, {
+    headers: {Authorization: `Bearer ${token}`},
+    cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error('server');
+  const {guard} = await response.json();
+  return guard?.locked === false ? null : 'locked';
+}
+
 async function account(message) {
   const token = await deviceToken();
   if (message.operation === 'account') return {paired: !!token};
-  if (message.operation === 'unpair') { await chrome.storage.local.set({token: ''}); return {paired: false}; }
+  if (message.operation === 'unpair') {
+    const refusal = await unpairRefusal(token);
+    if (refusal) return {error: refusal};
+    await chrome.storage.local.set({token: ''});
+    return {paired: false};
+  }
   const join = message.operation !== 'pair-code';
   if (!join && !token) return {error: 'unpaired'};
   const body = message.operation === 'pair' ? {code: String(message.code || ''), kind: 'chrome'} : {kind: 'chrome'};

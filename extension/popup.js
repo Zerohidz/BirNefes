@@ -23,7 +23,7 @@ async function showQuota() {
 
 const $ = id => document.getElementById(id);
 const send = message => chrome.runtime.sendMessage(message).catch(() => ({error:'offline'}));
-const failures = {offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
+const failures = {offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', locked:'Kardeş kilidi açıkken hesap değiştirilemez. Telefondan izin iste.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
 
 async function joined(button, message) {
   const status = $('join-status');
@@ -54,7 +54,8 @@ $('link-phone').addEventListener('click', async () => {
 });
 $('switch').addEventListener('click', async () => {
   if (!confirm('Bu bilgisayar mevcut hesaptan çıkacak. Telefonun bu hesapta kalır. Devam edilsin mi?')) return;
-  await send({operation:'unpair'});
+  const r = await send({operation:'unpair'});
+  if (r?.paired !== false) { $('link-status').textContent = failures[r?.error] || failures.offline; return; }
   show(false);
 });
 $('pair-form').addEventListener('submit', event => {

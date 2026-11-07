@@ -17,7 +17,7 @@ ANDROID_SDK_ROOT=/path/to/sdk bash build.sh   # personal: artifacts/BirNefes-<ve
 BIRNEFES_PUBLIC=1 bash build.sh               # public: artifacts/BirNefes-<versionName>.apk, no token; each install registers
 BIRNEFES_LOCAL_ONLY=1 bash build.sh           # sync off, local DelayGate (also: BIRNEFES_SYNC_CONFIG=/missing/file)
 BIRNEFES_TEST_HTTP=1 BIRNEFES_SYNC_CONFIG=cfg.json bash build.sh  # http:// test server, cleartext allowed: -http-test.apk, never distribute
-python3 scripts/package-extension.py          # artifacts/BirNefes-Chrome/ + zip; needs .build/sync-config.json
+python3 scripts/package-extension.py          # artifacts/BirNefes-Chrome/, zip, signed crx, updates.xml; needs chromium and .build/extension.pem
 ```
 
 Local tests, no device or network:
@@ -87,6 +87,7 @@ Production operations are in the README's "Server operations" section. `server/d
 - **Privacy is a product guarantee.** The accessibility service reads package identities only: `canRetrieveWindowContent` and `canPerformGestures` are false, and nothing reads event text, nodes, or screenshots. Call handling reads the call state only, never the number. One narrow exception: while the guardian lock holds, `LockRules` compares Settings window-state event titles (Samsung opens every Settings page as `SubSettings`); titles are never stored or logged. Do not add these to solve a detection problem.
 - **Credentials:** `SyncConfig.java` is generated into `.build/generated/` by `scripts/generate-sync-config.py`, and packaging injects the Chrome token into the copy of `config.js` under `artifacts/`. The source `extension/config.js` keeps an empty token. `.build/` and `artifacts/` are gitignored and hold real credentials; the server stores hashes only. With no `.build/sync-config.json`, `build.sh` now produces a synced APK against the default URL without a token; only `BIRNEFES_LOCAL_ONLY=1` or an explicit `BIRNEFES_SYNC_CONFIG` pointing at a missing file produce a local-only APK.
 - **Keep `.build/debug.jks`.** It is the signing identity that allows in-place updates.
+- **Keep `.build/extension.pem`.** It fixes the Chrome extension ID that `scripts/install-chromium-lock.sh` force-installs.
 - **Do not reset the production database.** Rotating credentials means deploying new hashes and rebuilding both paired artifacts.
 - **Emulator UI checks:** `uiautomator dump` rebinds accessibility services, and `PauseService` goes Home on every reconnect. Use screenshots and fixed taps instead.
 - **Verification gap:** emulator tests do not cover real calls, notifications, TalkBack, OEM battery handling, or split-screen. These need a physical device.

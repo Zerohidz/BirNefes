@@ -125,6 +125,18 @@ right, for at most five minutes. It never becomes a permanent exception.
 **Kontrol süresi** sets how long the blocker waits for the server's answer on a
 fresh entry: 0.5 to 3 seconds in half-second steps, 1 second by default.
 
+## Chromium lock (1.5.2)
+
+On Linux, `sudo sh scripts/install-chromium-lock.sh` writes a managed Chromium policy
+(`/etc/chromium/policies/managed/birnefes.json`). Chromium then force-installs the signed
+extension from `https://birnefes.zerohidz.com/updates.xml`, so it cannot be removed or
+disabled from the browser, and Incognito and Guest mode are off. Remove the old unpacked
+copy and pair once from the phone: the signed extension has its own ID and storage.
+While the guardian lock holds, the popup also refuses to leave the account.
+
+This is friction, not a wall: `sudo rm` of that file or `--disable-extensions` undoes it,
+and other browsers are not covered.
+
 ## Kardeş onayı (guardian lock, Android 1.5.0)
 
 An optional second person, the guardian (kardeş), makes the phone side harder to
