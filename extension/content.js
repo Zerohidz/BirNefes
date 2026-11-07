@@ -2,7 +2,7 @@
   if (birNefesCategory(location.href) !== 'messaging') return;
   let state = 'connecting', attempt = '', generation = 0, deadline = 0;
   let lastMuted;
-  let emergencyRemaining = -1, confirming = false, extraUntil = 0;
+  let emergencyRemaining = -1, confirming = false, extraUntil = 0, used = -1, rights = -1;
   let wallDeadline = 0, ready = 0, session = 0, busy = false, pollAt = 0;
   const host = document.createElement('bir-nefes-blocker');
   host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;display:block;visibility:visible;';
@@ -12,8 +12,8 @@
     section{max-width:520px;width:100%;text-align:center}h1{font-size:clamp(28px,4vw,40px);line-height:1.2;font-weight:650;margin:0 0 20px}p{font-size:18px;line-height:1.6;color:#bacac4;margin:12px 0}
     output{display:block;font-size:88px;font-weight:600;line-height:1.3;font-variant-numeric:tabular-nums;color:#50b582;margin:20px 0}
     button{font:600 16px system-ui;background:#50b582;color:#0a141b;border:0;border-radius:10px;padding:16px 28px;margin-top:28px;cursor:pointer;min-height:52px}button:focus-visible{outline:3px solid white;outline-offset:5px}
-    small{display:block;color:#93aaa0;font-size:14px;margin-top:24px;line-height:1.6}[hidden]{display:none!important}
-    </style><main role="dialog" aria-modal="true" aria-labelledby="title"><section><h1 id="title"></h1><p id="detail"></p><output id="count" aria-hidden="true" hidden></output><p id="note"></p><button id="home">Ana sayfaya dön</button><button id="urgent" hidden></button><p id="urgent-note" hidden></p><small>Bir Nefes · Telefon + Chrome<br>Haklar 03.00’te yenilenir · İstanbul saati</small></section></main>`;
+    #break{font-size:28px;font-weight:700;color:#50b582;margin:24px 0 4px}#break span{display:block;font-size:16px;font-weight:400;color:#bacac4;margin-top:6px}small{display:block;color:#93aaa0;font-size:14px;margin-top:24px;line-height:1.6}[hidden]{display:none!important}
+    </style><main role="dialog" aria-modal="true" aria-labelledby="title"><section><h1 id="title"></h1><p id="detail"></p><p id="break" hidden></p><output id="count" aria-hidden="true" hidden></output><p id="note"></p><button id="home">Ana sayfaya dön</button><button id="urgent" hidden></button><p id="urgent-note" hidden></p><small>Bir Nefes · Telefon + Chrome<br>Haklar 03.00’te yenilenir · İstanbul saati</small></section></main>`;
   const $ = id => shadow.getElementById(id);
   function attach() {
     if (!host.isConnected && document.documentElement) document.documentElement.append(host);
@@ -36,6 +36,9 @@
     $('detail').textContent = extra ? `${birNefesUntil(extraUntil)} kendi koyduğun kısıt sürüyor.` : state === 'waiting' ? 'Şu an bu siteye neden giriyorsun?' : state === 'connecting' ? 'Telefon ve bilgisayar aynı hakkı paylaşır.' : state === 'error' ? 'Bağlantını kontrol edip yeniden gir.' : state === 'unpaired' ? 'Eklenti simgesine tıkla.' : 'Ekrandan ayrılma zamanı.';
     $('note').textContent = extra ? 'Acele geçişi açılabilir. Erken bitirmek için kardeşinden izin iste.' : state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : state === 'unpaired' ? 'Telefondaki kodu gir. Sonra bu sayfayı yenile.' : 'Birazdan devam edeceksin.';
     $('count').hidden = state !== 'waiting';
+    $('break').hidden = state !== 'waiting' || used < 0;
+    $('break').textContent = `Bugünkü ${used + 1}. molan`;
+    if (rights > 0) { const rest = document.createElement('span'); rest.textContent = `Bundan sonra ${rights - 1} hakkın kalacak.`; $('break').append(rest); }
     $('urgent').hidden = allowed || state === 'connecting' || state === 'unpaired' || emergencyRemaining === 0;
     $('urgent').textContent = confirming ? 'Aylık 1 hakkı kullan ve aç' : `Acele geçişi · 20 dakika${emergencyRemaining >= 0 ? ` · ${emergencyRemaining}/4 kaldı` : ''}`;
     $('urgent-note').hidden = $('urgent').hidden;
@@ -68,6 +71,8 @@
       if (!result || result.error) { if (state !== 'allowed') render(result?.error === 'unpaired' ? 'unpaired' : 'error'); return; }
       emergencyRemaining = Number.isInteger(result.emergencyRemaining) ? result.emergencyRemaining : -1;
       extraUntil = result.extraAllUntil > result.serverNow ? result.extraAllUntil : 0;
+      used = Number.isInteger(result.used) ? result.used : -1;
+      rights = Number.isInteger(result.remaining) ? result.remaining : -1;
       if (result.state === 'allowed') {
         if (operation === 'status' && result.session !== session) { render('expired'); return; }
         const left = Math.max(0, result.expiresAt - result.serverNow - result.transitMs);

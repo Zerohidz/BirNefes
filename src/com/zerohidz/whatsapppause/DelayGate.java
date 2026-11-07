@@ -24,6 +24,7 @@ public final class DelayGate {
     public int used() { return used; }
     public boolean nightUsed() { return nightUsed; }
     public long end() { return end; }
+    public long elapsedEnd() { return elapsedEnd; }
     public State state() { return state; }
     private boolean night(long now, ZoneId zone) {
         LocalTime time = Instant.ofEpochMilli(now).atZone(zone).toLocalTime();

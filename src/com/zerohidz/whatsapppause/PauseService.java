@@ -39,6 +39,7 @@ public final class PauseService extends AccessibilityService {
         if (calls.recheckAfterCall(locked, callActive()) && currentState() == DelayGate.State.AWAY) enterRestricted();
     };
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final UsageTimer timer = new UsageTimer(this);
     /** Whether the last app window seen was restricted or lock-covered; unknown counts as restricted. */
     private boolean foregroundRestricted = true;
     private WindowManager windows;
@@ -192,6 +193,7 @@ public final class PauseService extends AccessibilityService {
         removeOverlay();
     }
     private void render(DelayGate.State state) {
+        timer.show(state, remote == null ? gate.elapsedEnd() : remote.deadline());
         if (state == DelayGate.State.ALLOWED || state == DelayGate.State.AWAY || overlaySuppressed()) { removeOverlay(); return; }
         if (state == DelayGate.State.CONNECTING && overlay == null && SystemClock.elapsedRealtime() < connectingGraceUntil) return;
         if (overlay == null || overlayState != state) showOverlay(state);
@@ -265,13 +267,18 @@ public final class PauseService extends AccessibilityService {
             : "Ekrandan ayrılma zamanı.", 18));
         countdown = null;
         if (waiting) {
+            int used = remote == null ? gate.used() : remote.used();
+            int rights = remote == null ? 5 - gate.used() : remote.rights();
+            if (used >= 0) {
+                TextView number = label("Bugünkü " + (used + 1) + ". molan", 28);
+                number.setTextColor(Ui.PRIMARY);
+                number.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+                content.addView(number);
+                if (rights > 0) content.addView(label("Bundan sonra " + (rights - 1) + " hakkın kalacak.", 16));
+            }
             countdown = label("30", 80);
             countdown.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             content.addView(countdown);
-            int used = remote == null ? gate.used() : remote.used();
-            int rights = remote == null ? 5 - gate.used() : remote.rights();
-            if (used >= 0) content.addView(label("Bugünkü " + (used + 1) + ". molan"
-                + (rights > 0 ? " · bundan sonra " + (rights - 1) + " hakkın kalacak" : ""), 18));
         }
         content.addView(label(connecting ? "Birazdan devam edeceksin." : offline ? "Bağlantı kurulmadan yeni kullanım hakkı açılamaz." : waiting ? "30 saniyelik mola bitince otomatik devam edeceksin."
             : state == DelayGate.State.EXPIRED ? "Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar."

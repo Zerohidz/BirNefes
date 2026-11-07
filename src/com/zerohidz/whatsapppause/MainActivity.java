@@ -540,6 +540,12 @@ public final class MainActivity extends Activity {
     }
     @Override public void onResume() {
         super.onResume();
+        // The remaining-time notification needs this on Android 13+; asked once, then left alone.
+        if (android.os.Build.VERSION.SDK_INT >= 33 && !settings.getBoolean("notificationAsked", false)
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            settings.edit().putBoolean("notificationAsked", true).apply();
+            requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 2);
+        }
         refreshStatus();
         refreshCallPermission();
         showCheckDelay();

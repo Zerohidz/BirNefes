@@ -41,6 +41,8 @@ public final class RemoteGate {
     }
     private String attempt;
     public DelayGate.State state() { return state; }
+    /** The elapsed-realtime end of the open window. */
+    public long deadline() { return deadline; }
     public long remaining(long elapsed) { return state == DelayGate.State.WAITING ? Math.max(0, deadline - elapsed) : 0; }
     public void enter() {
         if (state != DelayGate.State.AWAY) return;
