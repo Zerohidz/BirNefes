@@ -39,6 +39,8 @@ public final class PauseService extends AccessibilityService {
         if (calls.recheckAfterCall(locked, callActive()) && currentState() == DelayGate.State.AWAY) enterRestricted();
     };
     private final Handler handler = new Handler(Looper.getMainLooper());
+    /** Whether the last app window seen was restricted or lock-covered; unknown counts as restricted. */
+    private boolean foregroundRestricted = true;
     private WindowManager windows;
     private ScrollView overlay;
     private TextView countdown;
@@ -52,7 +54,8 @@ public final class PauseService extends AccessibilityService {
             }
             if (Intent.ACTION_SCREEN_OFF.equals(action)) calls.screenOff(currentState() != DelayGate.State.AWAY);
             leave();
-            if (Intent.ACTION_USER_PRESENT.equals(action) && !call) performGlobalAction(GLOBAL_ACTION_HOME);
+            // Only a restricted (or unknown) app behind the lock screen is sent Home on unlock.
+            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && foregroundRestricted) performGlobalAction(GLOBAL_ACTION_HOME);
         }
     };
     private final Runnable tick = new Runnable() {
@@ -118,7 +121,7 @@ public final class PauseService extends AccessibilityService {
             // Any of our own Activities, not the overlay or a dialog window.
             if (policy.activityWindow(pkg, event.getClassName())) {
                 calls.window(false);
-                if (eventGate.allowedWindow(event.getEventTime())) leave();
+                if (eventGate.allowedWindow(event.getEventTime())) { foregroundRestricted = false; leave(); }
             }
             return;
         }
@@ -129,15 +132,17 @@ public final class PauseService extends AccessibilityService {
         // Guardian lock: the windows that would switch Bir Nefes off are covered.
         if ((LockRules.covers(pkg, event.getClassName()) || LockRules.coversTitle(pkg, event.getText()))
                 && Account.locked(this)) {
+            foregroundRestricted = true;
             if (eventGate.restrictedWindow(event.getEventTime(), true)) showLock();
             return;
         }
         if (SystemClock.elapsedRealtime() >= policyRefresh) { policy.refresh(); policyRefresh = SystemClock.elapsedRealtime() + 5000; }
         if (policy.allowed(pkg) || (policy.picker(pkg) && PickerPass.active(SystemClock.elapsedRealtime()))) {
             if (policy.callScreen(pkg)) calls.callScreenWindow(); else calls.window(false);
-            if (eventGate.allowedWindow(event.getEventTime())) leave();
+            if (eventGate.allowedWindow(event.getEventTime())) { foregroundRestricted = false; leave(); }
             return;
         }
+        foregroundRestricted = true;
         if (!eventGate.restrictedWindow(event.getEventTime(), policy.activityWindow(pkg, event.getClassName()))) return;
         calls.window(true);
         enterRestricted();
