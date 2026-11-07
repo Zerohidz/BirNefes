@@ -1,9 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Bir Nefes \u2014 ekran molas\u0131",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "update_url": "https://birnefes.zerohidz.com/updates.xml",
   "description": "Telefon uygulamalar\u0131 ve se\u00e7ili siteler i\u00e7in ortak g\u00fcnl\u00fck haklar. Ayda 4 acele ge\u00e7i\u015fi.",
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
   "minimum_chrome_version": "120",
   "permissions": [
     "storage"
@@ -16,7 +22,13 @@
   },
   "action": {
     "default_title": "Bir Nefes",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png"
+    }
   },
   "content_scripts": [
     {
