@@ -45,7 +45,9 @@ domains. The extension does not cover unrelated mirrors or native desktop apps.
 - **17:00–22:30:** free.
 - **22:30–05:00:** blocked, unless a monthly urgent pass is used.
 - Only a visible, focused video tab consumes the metered budget. Leaving the tab,
-  switching windows or navigating away pauses playback and sends a stop message.
+  switching windows or navigating away pauses metered playback and sends a stop message.
+  In free hours and during an urgent pass playback continues in the background until
+  that window ends.
   Multiple overlapping tab requests count elapsed time once, not once per tab.
 - The server measures milliseconds; the popup displays remaining seconds. Metered
   access uses five-second server leases refreshed every two seconds. If a tab

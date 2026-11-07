@@ -16,7 +16,7 @@ async function showQuota() {
     if(!r || r.error) throw new Error('offline');
     const seconds=Math.floor(r.videoRemainingMs/1000);
     status.textContent=r.mode==='free' ? 'Şu an serbest' : r.mode==='emergency' ? 'Acele geçişin açık' : r.mode==='night' ? 'Sabah 05.00’te açılır' : `${Math.floor(seconds/60)} dk ${seconds%60} sn kaldı`;
-    detail.textContent='Bu süre mesajlaşma haklarından ayrıdır. Sekmeden ayrılınca sayaç durur.';
+    detail.textContent='Bu süre mesajlaşma haklarından ayrıdır. Sayaçlı saatlerde sekmeden ayrılınca video durur, serbest saatlerde arka planda da çalar.';
   } catch {status.textContent='Süre kontrol edilemedi';detail.textContent='Sunucu bağlantısını kontrol et.';}
 })();
 }

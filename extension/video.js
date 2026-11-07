@@ -70,6 +70,9 @@
     render('connecting'); request('video-enter');
   }
   function leave() {
+    // Free and urgent time is not metered, so it may keep playing in the background
+    // until its server deadline; only the metered budget stops with the tab.
+    if (state === 'allowed' && mode !== 'metered' && !expired()) return;
     const previous = attempt; attempt=''; generation++; busy=false;
     render('paused');
     if(previous) chrome.runtime.sendMessage({operation:'video-stop',attempt:previous}).catch(() => {});
