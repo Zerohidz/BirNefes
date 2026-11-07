@@ -154,6 +154,15 @@ class PolicyTests(unittest.TestCase):
         upgraded=Store(path)
         self.assertEqual(upgraded.request(1,'phone','status',now=self.t)['used'],3)
 
+    def test_video_weekend_is_free_until_the_night(self):
+        for moment, expected, mode in [('2026-10-02T12:00:00','allowed','metered'),('2026-10-03T02:00:00','exhausted','night'),('2026-10-03T04:59:59','exhausted','night'),('2026-10-03T05:00:00','allowed','free'),('2026-10-03T08:00:00','allowed','free'),('2026-10-03T12:00:00','allowed','free'),('2026-10-03T22:29:59','allowed','free'),('2026-10-03T22:30:00','exhausted','night'),('2026-10-04T02:00:00','exhausted','night'),('2026-10-04T12:00:00','allowed','free'),('2026-10-04T23:00:00','exhausted','night'),('2026-10-05T02:00:00','exhausted','night'),('2026-10-05T12:00:00','allowed','metered')]:
+            r=self.store.request(1,'chrome','video_enter','video-0000000001',at(moment))
+            self.assertEqual((r['state'],r['mode']),(expected,mode),moment)
+        r=self.store.request(1,'chrome','video_enter','video-0000000001',at('2026-10-03T06:00:00'))
+        self.assertEqual((r['expiresAt'],r['nextChangeAt']),(at('2026-10-03T22:30:00'),at('2026-10-03T22:30:00')))
+        r=self.store.request(1,'chrome','video_tick','video-0000000001',at('2026-10-03T12:00:05'))
+        self.assertEqual(r['videoRemainingMs'],1_200_000)
+
     def test_video_free_windows_and_night(self):
         for hour, expected, mode in [('04:59:59','exhausted','night'),('05:00:00','allowed','free'),('07:59:59','allowed','free'),('08:00:00','allowed','metered'),('16:59:59','allowed','metered'),('17:00:00','allowed','free'),('22:29:59','allowed','free'),('22:30:00','exhausted','night')]:
             r=self.store.request(1,'chrome','video_enter','video-0000000001',at('2026-10-01T'+hour))

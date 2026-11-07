@@ -39,8 +39,9 @@ domains. The extension does not cover unrelated mirrors or native desktop apps.
 ## Chrome video / film rules
 
 - **05:00–08:00:** free.
-- **08:00–17:00:** twenty minutes total, accumulated across short visits. No 30-second
-  wait and no fixed twenty-minute session. This does not consume phone/message rights.
+- **08:00–17:00:** twenty minutes total on weekdays, accumulated across short visits. No
+  30-second wait and no fixed twenty-minute session. This does not consume phone/message
+  rights. On Saturday and Sunday these hours are free too.
 - **17:00–22:30:** free.
 - **22:30–05:00:** blocked, unless a monthly urgent pass is used.
 - Only a visible, focused video tab consumes the metered budget. Leaving the tab,

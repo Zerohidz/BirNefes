@@ -288,6 +288,8 @@ class Store:
         date = datetime.fromisoformat(day).date()
         stamp = lambda hour: int(datetime.combine(date, daytime(hour), ZONE).timestamp()*1000)
         five, eight, seventeen = stamp(5), stamp(8), stamp(17)
+        # Saturday and Sunday have no metered hours; the night stays closed.
+        weekend = date.weekday() >= 5
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             self.ensure(db, account)
@@ -315,8 +317,8 @@ class Store:
             if urgent:
                 db.execute('DELETE FROM video_clients WHERE account_id=?', (account,))
                 state, mode, end = 'allowed', 'emergency', grant['end']
-            elif five <= now < eight or seventeen <= now < cutoff:
-                state, mode, end = 'allowed', 'free', eight if now < eight else cutoff
+            elif five <= now < eight or seventeen <= now < cutoff or (weekend and five <= now < cutoff):
+                state, mode, end = 'allowed', 'free', eight if now < eight and not weekend else cutoff
             elif eight <= now < seventeen and q['spent'] < VIDEO_BUDGET:
                 state, mode = 'allowed', 'metered'
                 end = min(now + VIDEO_LEASE, now + VIDEO_BUDGET - q['spent'], seventeen)
@@ -334,7 +336,7 @@ class Store:
                         session=grant['session'] if urgent else 0, sessionKind=mode,
                         videoRemainingMs=VIDEO_BUDGET-q['spent'], emergencyRemaining=emergency_left,
                         budgetDay=day, renewalAt=renewal, readyAt=0, remaining=0,
-                        nextChangeAt=(five if now < five else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
+                        nextChangeAt=(five if now < five else cutoff if weekend and now < cutoff else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
 
     def guard_view(self, db, account, now):
         a = db.execute('SELECT guardian_email, released_until, mail_error FROM accounts WHERE id=?', (account,)).fetchone()
