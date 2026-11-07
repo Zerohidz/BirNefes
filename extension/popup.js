@@ -64,7 +64,6 @@ $('pair-form').addEventListener('submit', event => {
   if (code.length !== 8) { $('join-status').textContent = 'Kod 8 harften oluşur.'; return; }
   joined($('pair'), {operation:'pair', code});
 });
-$('register').addEventListener('click', () => joined($('register'), {operation:'register'}));
 
 function show(paired) {
   $('join').hidden = paired; $('quota').hidden = !paired;

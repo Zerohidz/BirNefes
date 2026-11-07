@@ -32,16 +32,17 @@ async function account(message) {
     await chrome.storage.local.set({token: ''});
     return {paired: false};
   }
-  const join = message.operation !== 'pair-code';
+  // Accounts are created on the phone: a new one here would escape the guardian and the quota.
+  const join = message.operation === 'pair';
   if (!join && !token) return {error: 'unpaired'};
-  const body = message.operation === 'pair' ? {code: String(message.code || ''), kind: 'chrome'} : {kind: 'chrome'};
+  const body = {code: String(message.code || ''), kind: 'chrome'};
   const response = await fetch(`${BIRNEFES_CONFIG.url}/v1/${message.operation}`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', ...(!join ? {Authorization: `Bearer ${token}`} : {})},
     ...(join ? {body: JSON.stringify(body)} : {}),
     cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
   });
-  if (response.status === 403 && message.operation === 'pair') return {error: 'invalid_code'};
+  if (response.status === 403 && join) return {error: 'invalid_code'};
   if (response.status === 401) return {error: 'unpaired'};
   if (!response.ok) throw new Error('server');
   const result = await response.json();
@@ -68,7 +69,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     chrome.tabs.update(sender.tab.id, {url: 'chrome://newtab/'}).then(() => reply({ok:true}), () => reply({error:'navigation'}));
     return true;
   }
-  if (['account','register','pair','pair-code','unpair'].includes(message?.operation)) {
+  if (['account','pair','pair-code','unpair'].includes(message?.operation)) {
     if (!fromExtension) return false;
     account(message).then(reply, () => reply({error: 'offline'}));
     return true;

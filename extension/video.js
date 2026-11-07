@@ -30,7 +30,7 @@
       chrome.runtime.sendMessage({operation:'audio', blocked:!allowed}).catch(() => { lastMuted=undefined; });
     }
     $('title').textContent = state === 'unpaired' ? 'Bir Nefes’i eşleştir.' : state === 'connecting' ? 'Video hakkın kontrol ediliyor…' : state === 'paused' ? 'Video süren duraklatıldı.' : state === 'error' ? 'Sunucuya ulaşılamadı.' : mode === 'night' ? 'Şimdi ekranı bırakma zamanı.' : '20 dakikalık video hakkın bitti.';
-    $('detail').textContent = state === 'unpaired' ? 'Eklenti simgesine tıkla. Telefondaki kodu gir ya da yeni hesap oluştur, sonra bu sayfayı yenile.' : state === 'paused' ? 'Bu sekmeye dönünce kaldığın süreden devam edersin.' : state === 'error' ? 'Bağlantı gelince kalan süren kontrol edilir.' : state === 'connecting' ? 'Video süresi mesajlaşma haklarından ayrıdır.' : mode === 'night' ? 'Video ve film siteleri 05.00’te açılacak.' : '17.00’de serbest kullanım başlayacak.';
+    $('detail').textContent = state === 'unpaired' ? 'Eklenti simgesine tıkla. Telefondaki kodu gir, sonra bu sayfayı yenile.' : state === 'paused' ? 'Bu sekmeye dönünce kaldığın süreden devam edersin.' : state === 'error' ? 'Bağlantı gelince kalan süren kontrol edilir.' : state === 'connecting' ? 'Video süresi mesajlaşma haklarından ayrıdır.' : mode === 'night' ? 'Video ve film siteleri 05.00’te açılacak.' : '17.00’de serbest kullanım başlayacak.';
     $('urgent').hidden = allowed || ['connecting','paused','unpaired'].includes(state) || emergencyRemaining === 0;
     $('urgent').textContent = confirming ? 'Aylık 1 hakkı kullan ve aç' : `Acele geçişi · 20 dakika${emergencyRemaining >= 0 ? ` · ${emergencyRemaining}/4 kaldı` : ''}`;
     $('note').textContent = $('urgent').hidden ? '' : 'Ayda 4 ortak acele hakkı. Günlük video süresinden düşmez.';

@@ -132,7 +132,9 @@ On Linux, `sudo sh scripts/install-chromium-lock.sh` writes a managed Chromium p
 extension from `https://birnefes.zerohidz.com/updates.xml`, so it cannot be removed or
 disabled from the browser, and Incognito and Guest mode are off. Remove the old unpacked
 copy and pair once from the phone: the signed extension has its own ID and storage.
-While the guardian lock holds, the popup also refuses to leave the account.
+While the guardian lock holds, the popup also refuses to leave the account. Accounts are
+created on the phone only: the extension joins one with a phone pairing code, so a new
+Chromium profile cannot open a fresh account without the guardian.
 
 This is friction, not a wall: `sudo rm` of that file or `--disable-extensions` undoes it,
 and other browsers are not covered.
