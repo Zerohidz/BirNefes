@@ -5,11 +5,10 @@ cd "$(dirname "$0")"
 task_tools="$ANDROID_SDK_ROOT/build-tools/36.0.0"
 task_android="$ANDROID_SDK_ROOT/platforms/android-36/android.jar"
 task_version=$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("AndroidManifest.xml").getroot().attrib["{http://schemas.android.com/apk/res/android}versionName"])')
-# BIRNEFES_PUBLIC=1: no personal token, for anyone. BIRNEFES_TEST_HTTP=1: cleartext to a local test server.
+# BIRNEFES_TEST_HTTP=1: cleartext to a local test server.
 task_manifest=AndroidManifest.xml
 if [ "${BIRNEFES_TEST_HTTP:-}" = 1 ]; then task_apk="artifacts/BirNefes-${task_version}-http-test.apk"
-elif [ "${BIRNEFES_PUBLIC:-}" = 1 ]; then task_apk="artifacts/BirNefes-${task_version}.apk"
-else task_apk="artifacts/BirNefes-${task_version}-test.apk"; fi
+else task_apk="artifacts/BirNefes-${task_version}.apk"; fi
 rm -rf .build/classes .build/dex
 mkdir -p .build/classes .build/dex .build/generated artifacts
 python3 scripts/generate-sync-config.py

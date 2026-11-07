@@ -7,9 +7,10 @@ import java.security.NoSuchAlgorithmException;
 
 /**
  * Which token the device sends. Pure Java so it is unit tested without a device.
- * Order: the saved token, then the token built into a personal build, then a new
- * registration under this install. The saved value "" means the built-in token was
- * rejected once and must not be used again.
+ * The token lives in saved storage, which survives app updates. Without one, a new
+ * registration under this install. Only an http test build has a built-in token: it
+ * is saved on first use. The saved value "" means a token was rejected and must not
+ * be used again.
  */
 final class AccountStore {
     interface Saved { String get(); void put(String token); }
@@ -31,7 +32,7 @@ final class AccountStore {
         synchronized (LOCK) {
             String token = saved.get();
             if (token != null && !token.isEmpty()) return token;
-            if (token == null && !builtIn.isEmpty()) return builtIn;
+            if (token == null && !builtIn.isEmpty()) { saved.put(builtIn); return builtIn; }
             token = registrar.register(install);
             if (token == null || token.isEmpty()) throw new IOException("Empty token");
             saved.put(token);
@@ -41,8 +42,7 @@ final class AccountStore {
     /** After a 401. Only the rejected token is dropped, never a newer one saved meanwhile. */
     void rejected(String token) {
         synchronized (LOCK) {
-            String current = saved.get();
-            if (current == null ? token.equals(builtIn) : current.equals(token)) saved.put("");
+            if (token.equals(saved.get())) saved.put("");
         }
     }
     /** After a successful pair: the device now belongs to that account. */

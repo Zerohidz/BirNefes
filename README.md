@@ -183,22 +183,17 @@ server and sent to the guardian by mail. The phone shows the address masked
 
 ## Ready-to-install artifacts
 
-- `artifacts/BirNefes-1.4.0-test.apk`: paired Android client, versionCode 9.
-- `artifacts/BirNefes-Chrome/`: paired, unpacked extension folder.
-- `artifacts/BirNefes-Chrome-1.4.0.zip`: same extension as a ZIP.
-- `artifacts/BirNefes-1.1.1-test.apk`: previous offline/local build with 03:00 renewal.
+Downloads are at <https://birnefes.zerohidz.com>:
 
-Install 1.4.0 over the existing Android app and enable its accessibility service.
-Android may require **Allow restricted settings** for a sideloaded service.
-In Chrome, open `chrome://extensions`, enable **Developer mode**, choose
-**Load unpacked**, and select the `artifacts/BirNefes-Chrome` folder. Reload any
-already open restricted tabs. For an existing installation, press **Reload** on
-the extension card; Chrome may request the expanded site permissions. No token entry is needed in these paired artifacts.
-The extension only applies in browsers/profiles where it is installed and enabled.
+- `BirNefes-<version>.apk`: Android client. Each install registers its own account.
+- `BirNefes-Chrome-<version>.crx` and `.zip`: the extension. It joins with a phone code.
 
-Paired APK/extension artifacts contain private device credentials. Keep these
-artifacts private. Credentials are generated in ignored `.build/sync-config.json`;
-the server stores only their hashes. The source tree contains no credentials.
+Enable the accessibility service after installing. Android may require **Allow
+restricted settings** for a sideloaded service.
+
+No artifact carries a credential. A device keeps its token in its own app storage,
+which survives updates; the server stores only hashes. The token in ignored
+`.build/sync-config.json` is for the account's oldest devices and test builds.
 Upgrading from synced1.2.0 preserves the existing server quota and credentials.
 The old1.1.x local-only ledger was never imported into the server ledger.
 
@@ -226,10 +221,9 @@ ANDROID_SDK_ROOT=/path/to/sdk bash build.sh
 python3 scripts/package-extension.py
 ```
 
-Both builds read `.build/sync-config.json`. The APK generator also accepts
-`BIRNEFES_SYNC_CONFIG=/path/to/config.json`. Without a config the APK syncs with
-`https://zmanga.zerohidz.com/bir-nefes` and registers its own account on first use.
-`BIRNEFES_PUBLIC=1` leaves the personal token out (`artifacts/BirNefes-<version>.apk`);
+The APK reads its server URL from `.build/sync-config.json`, or from
+`BIRNEFES_SYNC_CONFIG=/path/to/config.json`, and never a token. Without a config it syncs with
+`https://zmanga.zerohidz.com/bir-nefes`. Every install registers its own account on first use.
 `BIRNEFES_LOCAL_ONLY=1`, or `BIRNEFES_SYNC_CONFIG` naming a missing file, builds a local-only APK.
 Keep `.build/debug.jks` to preserve the test signing identity for in-place updates.
 Never distribute a QA APK with test authority credentials as the production build.

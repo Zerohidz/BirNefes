@@ -31,11 +31,12 @@ public final class AccountStoreTest {
         check(saved.token(server).equals("saved"), "saved token first");
         check(server.calls == 0, "no register with a saved token");
 
-        // A personal build keeps its built-in token while nothing is saved.
+        // A test build's built-in token moves to saved storage on first use.
         Memory memory = new Memory(null);
         AccountStore personal = new AccountStore(memory, "builtin", install);
         check(personal.token(server).equals("builtin"), "built-in token second");
-        check(memory.value == null && server.calls == 0, "built-in token is not copied or registered");
+        check("builtin".equals(memory.value) && server.calls == 0, "built-in token saved, nothing registered");
+        check(new AccountStore(memory, "", install).token(server).equals("builtin") && server.calls == 0, "saved token survives an update without a built-in one");
 
         // A rejected built-in token is never used again; the install registers instead.
         personal.rejected("builtin");
@@ -62,6 +63,7 @@ public final class AccountStoreTest {
         // Pairing replaces the token, which then wins over the built-in one.
         memory = new Memory(null);
         AccountStore paired = new AccountStore(memory, "builtin", install);
+        paired.token(server);
         paired.replace("paired");
         check(paired.token(server).equals("paired"), "paired token used");
         paired.rejected("builtin");

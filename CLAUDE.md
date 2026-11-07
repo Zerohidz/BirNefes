@@ -13,10 +13,9 @@ The README is the specification for the quota rules (windows, night rule, video 
 Build (needs JDK 17+, Python 3, Android SDK platform 36 / build-tools 36.0.0, zip/unzip):
 
 ```sh
-ANDROID_SDK_ROOT=/path/to/sdk bash build.sh   # personal: artifacts/BirNefes-<versionName>-test.apk, token from .build/sync-config.json
-BIRNEFES_PUBLIC=1 bash build.sh               # public: artifacts/BirNefes-<versionName>.apk, no token; each install registers
+ANDROID_SDK_ROOT=/path/to/sdk bash build.sh   # artifacts/BirNefes-<versionName>.apk, no token; each install registers
 BIRNEFES_LOCAL_ONLY=1 bash build.sh           # sync off, local DelayGate (also: BIRNEFES_SYNC_CONFIG=/missing/file)
-BIRNEFES_TEST_HTTP=1 BIRNEFES_SYNC_CONFIG=cfg.json bash build.sh  # http:// test server, cleartext allowed: -http-test.apk, never distribute
+BIRNEFES_TEST_HTTP=1 BIRNEFES_SYNC_CONFIG=cfg.json bash build.sh  # http:// test server, cleartext and cfg token: -http-test.apk, never distribute
 python3 scripts/package-extension.py          # artifacts/BirNefes-Chrome/, zip, signed crx, updates.xml; needs chromium and .build/extension.pem
 ```
 
@@ -71,7 +70,7 @@ Production operations are in the README's "Server operations" section. `server/d
 - `WindowEventGate` orders window transitions so stale events cannot start a block during Home navigation.
 - `CallScreenGate` decides overlay hiding during ringing and the call-aware Home skips; `CallWatcher` feeds it call states (`READ_PHONE_STATE`), and `AudioManager` mode is the fallback without that permission. Hiding is visual: gate state and `tick` keep running.
 - `MainActivity`, `RulesActivity` and `ExceptionsActivity` share the look in `Ui` (at most one primary button per screen). The exception list never shows package names. Its file format and name search live in plain-Java `ExceptionRules`. `PickerPass` lets the system file picker through while the exceptions screen waits for it. `CheckDelay` holds the 0.5–3 s blocker wait for the server's answer.
-- `RemoteGate` is the quota client when `SyncConfig.ENABLED` (a URL is set; default `https://zmanga.zerohidz.com/bir-nefes`). Its token comes from `Account`/`AccountStore`: saved token in the `account` prefs, else the personal build's `SyncConfig.TOKEN`, else `/v1/register` with install = SHA-256(ANDROID_ID + ":birnefes"). A 401 drops that token and the next call registers again (same install, same account). `MainActivity`'s "Hesap" card pairs devices via `/v1/pair-code` and `/v1/pair`. `DelayGate` is the local state machine used only in a local-only build. Both drive the same `DelayGate.State`, so `PauseService` branches on `remote != null`.
+- `RemoteGate` is the quota client when `SyncConfig.ENABLED` (a URL is set; default `https://zmanga.zerohidz.com/bir-nefes`). Its token comes from `Account`/`AccountStore`: saved token in the `account` prefs (survives updates), else `/v1/register` with install = SHA-256(ANDROID_ID + ":birnefes"). A 401 drops that token and the next call registers again (same install, same account). `MainActivity`'s "Hesap" card pairs devices via `/v1/pair-code` and `/v1/pair`. `DelayGate` is the local state machine used only in a local-only build. Both drive the same `DelayGate.State`, so `PauseService` branches on `remote != null`.
 
 **Chrome** (`extension/`): `background.js` is the only code that talks to the server, and it validates that messages come from a target site or the extension itself. `content.js` draws the blocker, `video.js` handles the metered video behavior, and `sites.js` holds the target-domain classification.
 
@@ -85,7 +84,7 @@ Production operations are in the README's "Server operations" section. `server/d
 ## Constraints
 
 - **Privacy is a product guarantee.** The accessibility service reads package identities only: `canRetrieveWindowContent` and `canPerformGestures` are false, and nothing reads event text, nodes, or screenshots. Call handling reads the call state only, never the number. One narrow exception: while the guardian lock holds, `LockRules` compares Settings window-state event titles (Samsung opens every Settings page as `SubSettings`); titles are never stored or logged. Do not add these to solve a detection problem.
-- **Credentials:** `SyncConfig.java` is generated into `.build/generated/` by `scripts/generate-sync-config.py`, and packaging injects the Chrome token into the copy of `config.js` under `artifacts/`. The source `extension/config.js` keeps an empty token. `.build/` and `artifacts/` are gitignored and hold real credentials; the server stores hashes only. With no `.build/sync-config.json`, `build.sh` now produces a synced APK against the default URL without a token; only `BIRNEFES_LOCAL_ONLY=1` or an explicit `BIRNEFES_SYNC_CONFIG` pointing at a missing file produce a local-only APK.
+- **Credentials:** No APK or extension package carries a token: devices register or pair and keep the token in app storage (Android `account` prefs, Chrome `storage.local`), which survives updates. Only a `BIRNEFES_TEST_HTTP=1` build embeds the config's token, which it saves on first use. `SyncConfig.java` is generated into `.build/generated/` by `scripts/generate-sync-config.py`. `.build/` and `artifacts/` are gitignored and may hold real credentials; the server stores hashes only. With no `.build/sync-config.json`, `build.sh` still produces a synced APK against the default URL; only `BIRNEFES_LOCAL_ONLY=1` or an explicit `BIRNEFES_SYNC_CONFIG` pointing at a missing file produce a local-only APK.
 - **Keep `.build/debug.jks`.** It is the signing identity that allows in-place updates.
 - **Keep `.build/extension.pem`.** It fixes the Chrome extension ID that `scripts/install-chromium-lock.sh` force-installs.
 - **Do not reset the production database.** Rotating credentials means deploying new hashes and rebuilding both paired artifacts.
