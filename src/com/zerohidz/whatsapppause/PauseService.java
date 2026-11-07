@@ -255,6 +255,7 @@ public final class PauseService extends AccessibilityService {
             Button home = Ui.primary(this, "Ana sayfaya dön");
             home.setOnClickListener(v -> goHome());
             content.addView(home);
+            addUrgent(content);
             attachOverlay();
             return;
         }
@@ -278,7 +279,11 @@ public final class PauseService extends AccessibilityService {
         Button home = Ui.primary(this, "Ana sayfaya dön");
         home.setOnClickListener(v -> goHome());
         content.addView(home);
-        if (remote != null && !connecting && remote.emergencyRemaining() != 0) {
+        if (!connecting) addUrgent(content);
+        attachOverlay();
+    }
+    private void addUrgent(LinearLayout content) {
+        if (remote != null && remote.emergencyRemaining() != 0) {
             Button urgent = Ui.secondary(this, "Acele geçişi · 20 dakika" + (remote.emergencyRemaining() >= 0 ? " · " + remote.emergencyRemaining() + "/4 kaldı" : ""));
             urgent.setOnClickListener(v -> {
                 urgent.setText("Aylık 1 hakkı kullan ve aç");
@@ -287,7 +292,6 @@ public final class PauseService extends AccessibilityService {
             content.addView(urgent);
             content.addView(label("Günlük hakkından düşmez. Ayda 4 kez; ayın 1’inde 03.00’te yenilenir. İnternet gerekir.", 14));
         }
-        attachOverlay();
     }
     private void attachOverlay() {
         overlay.setFocusableInTouchMode(true);

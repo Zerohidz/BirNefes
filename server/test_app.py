@@ -165,10 +165,14 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual((r['state'],r['extraAllUntil']),('exhausted',t+60_000+3_600_000))
         r=self.store.request(1,'phone','enter','attempt-000000000002',t+62_000)
         self.assertEqual(r['state'],'exhausted')
-        r=self.store.request(1,'phone','emergency','attempt-000000000003',t+63_000)
-        self.assertEqual((r['state'],r['emergencyRemaining']),('exhausted',4))
-        r=self.store.request(1,'chrome','video_enter','video-0000000000a1',t+64_000)
+        r=self.store.request(1,'chrome','video_enter','video-0000000000a1',t+62_500)
         self.assertEqual((r['state'],r['mode']),('exhausted','limited'))
+        # The urgent pass still works and opens phone and video for its 20 minutes.
+        r=self.store.request(1,'phone','emergency','attempt-000000000003',t+63_000)
+        self.assertEqual((r['state'],r['emergencyRemaining'],r['expiresAt']),('allowed',3,t+63_000+1_200_000))
+        r=self.store.request(1,'chrome','video_enter','video-0000000000a1',t+64_000)
+        self.assertEqual((r['state'],r['mode']),('allowed','emergency'))
+        self.assertEqual(self.store.request(1,'phone','status',now=t+63_000+1_200_001)['state'],'exhausted')
         # A shorter request never shortens it; after it ends the normal rules return.
         self.assertEqual(self.store.start_extra(1,'all',30,t+65_000)[1]['extraAllUntil'],t+60_000+3_600_000)
         r=self.store.request(1,'phone','enter','attempt-000000000004',t+60_000+3_600_001)
@@ -180,9 +184,9 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(view['extraVideoUntil'],at('2026-10-04T03:00:00'))
         r=self.store.request(1,'chrome','video_enter','video-0000000000b1',t+1000)
         self.assertEqual((r['state'],r['mode'],r['nextChangeAt']),('exhausted','limited',at('2026-10-04T03:00:00')))
+        self.assertEqual(self.store.request(1,'phone','enter','attempt-0000000000b3',t+1500)['state'],'waiting')
         r=self.store.request(1,'chrome','video_emergency','video-0000000000b2',t+2000)
-        self.assertEqual((r['state'],r['emergencyRemaining']),('exhausted',4))
-        self.assertEqual(self.store.request(1,'phone','enter','attempt-0000000000b3',t+3000)['state'],'waiting')
+        self.assertEqual((r['state'],r['mode'],r['emergencyRemaining']),('allowed','emergency',3))
 
     def test_extra_ends_only_with_guardian_decision(self):
         mails=[]; self.store.mail=lambda *m: mails.append(m)

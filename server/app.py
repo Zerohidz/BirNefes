@@ -240,7 +240,8 @@ class Store:
                 q['end'] = min(q['end'], cutoff + NIGHT_WINDOW)
             extra = self.extra_view(db, account, now)
             limited = extra['extraAllUntil'] > 0
-            allowed = q['end'] > now and not limited
+            # An urgent pass still opens during an extra limit; normal rights do not.
+            allowed = q['end'] > now and (not limited or q['kind'] == 'emergency')
             available = q['used'] < 5 and (not late or not q['night']) and not limited
             state = 'allowed' if allowed else 'idle' if available else 'exhausted'
             month = day[:7]
@@ -248,7 +249,7 @@ class Store:
             if emergency['month'] != month:
                 emergency.update(month=month, used=0)
             ready = 0
-            if not limited and operation in ('emergency', 'emergency_video') and (not allowed or (operation == 'emergency_video' and q['kind'] != 'emergency')):
+            if operation in ('emergency', 'emergency_video') and (not allowed or (operation == 'emergency_video' and q['kind'] != 'emergency')):
                 seen = db.execute('SELECT 1 FROM emergency_requests WHERE account_id=? AND device=? AND attempt=?',
                                   (account, device, attempt)).fetchone()
                 if seen:
@@ -301,7 +302,7 @@ class Store:
         with self.connect() as db:
             extra = self.extra_view(db, account, now)
         limit_until = max(extra['extraVideoUntil'], extra['extraAllUntil'])
-        if operation == 'video_emergency' and not limit_until:
+        if operation == 'video_emergency':
             self.request(account, device, 'emergency_video', attempt, now)
         day, cutoff, renewal = bounds(now)
         date = datetime.fromisoformat(day).date()
@@ -321,7 +322,7 @@ class Store:
             # Account the union of active leases: multiple tabs do not multiply
             # consumption. No client clock/duration is accepted as authority.
             grant = db.execute('SELECT * FROM quota WHERE account_id=?', (account,)).fetchone()
-            urgent = grant['kind'] == 'emergency' and grant['end'] > now and not limit_until
+            urgent = grant['kind'] == 'emergency' and grant['end'] > now
             charge_end = min(now, grant['end'] - EMERGENCY_WINDOW) if urgent else now
             elapsed = max(0, min(charge_end, lease_end, seventeen) - max(q['accounted'], eight))
             q['spent'] = min(VIDEO_BUDGET, q['spent'] + elapsed)
@@ -333,11 +334,11 @@ class Store:
             emergency = db.execute('SELECT * FROM emergency WHERE account_id=?', (account,)).fetchone()
             emergency_left = 4 - emergency['used'] if emergency['month'] == day[:7] else 4
             closed = db.execute('SELECT 1 FROM video_closed WHERE account_id=? AND device=? AND attempt=?', (account, device, attempt)).fetchone()
-            if limit_until:
-                state, mode, end = 'exhausted', 'limited', now
-            elif urgent:
+            if urgent:
                 db.execute('DELETE FROM video_clients WHERE account_id=?', (account,))
                 state, mode, end = 'allowed', 'emergency', grant['end']
+            elif limit_until:
+                state, mode, end = 'exhausted', 'limited', now
             elif five <= now < eight or seventeen <= now < cutoff or (weekend and five <= now < cutoff):
                 state, mode, end = 'allowed', 'free', eight if now < eight and not weekend else cutoff
             elif eight <= now < seventeen and q['spent'] < VIDEO_BUDGET:
@@ -358,7 +359,7 @@ class Store:
                         videoRemainingMs=VIDEO_BUDGET-q['spent'], emergencyRemaining=emergency_left,
                         budgetDay=day, renewalAt=renewal, readyAt=0, remaining=0,
                         **extra,
-                        nextChangeAt=limit_until or (five if now < five else cutoff if weekend and now < cutoff else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
+                        nextChangeAt=(limit_until if not urgent else 0) or (five if now < five else cutoff if weekend and now < cutoff else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
 
     def extra_view(self, db, account, now):
         a = db.execute('SELECT extra_video_until, extra_all_until FROM accounts WHERE id=?', (account,)).fetchone()

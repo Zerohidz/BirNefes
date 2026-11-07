@@ -34,9 +34,9 @@
     const extra = state === 'exhausted' && extraUntil > 0;
     $('title').textContent = extra ? 'Ek kısıt açık.' : titles[state] || '';
     $('detail').textContent = extra ? `${birNefesUntil(extraUntil)} kendi koyduğun kısıt sürüyor.` : state === 'waiting' ? 'Şu an bu siteye neden giriyorsun?' : state === 'connecting' ? 'Telefon ve bilgisayar aynı hakkı paylaşır.' : state === 'error' ? 'Bağlantını kontrol edip yeniden gir.' : state === 'unpaired' ? 'Eklenti simgesine tıkla.' : 'Ekrandan ayrılma zamanı.';
-    $('note').textContent = extra ? 'Erken bitirmek için kardeşinden izin iste.' : state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : state === 'unpaired' ? 'Telefondaki kodu gir. Sonra bu sayfayı yenile.' : 'Birazdan devam edeceksin.';
+    $('note').textContent = extra ? 'Acele geçişi açılabilir. Erken bitirmek için kardeşinden izin iste.' : state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : state === 'unpaired' ? 'Telefondaki kodu gir. Sonra bu sayfayı yenile.' : 'Birazdan devam edeceksin.';
     $('count').hidden = state !== 'waiting';
-    $('urgent').hidden = allowed || extra || state === 'connecting' || state === 'unpaired' || emergencyRemaining === 0;
+    $('urgent').hidden = allowed || state === 'connecting' || state === 'unpaired' || emergencyRemaining === 0;
     $('urgent').textContent = confirming ? 'Aylık 1 hakkı kullan ve aç' : `Acele geçişi · 20 dakika${emergencyRemaining >= 0 ? ` · ${emergencyRemaining}/4 kaldı` : ''}`;
     $('urgent-note').hidden = $('urgent').hidden;
     $('urgent-note').textContent = 'Günlük hakkından düşmez. Ayda 4 kez; ayın 1’inde 03.00’te yenilenir. İnternet gerekir.';
