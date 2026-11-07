@@ -42,6 +42,8 @@ public final class PauseService extends AccessibilityService {
     private final UsageTimer timer = new UsageTimer(this);
     /** Whether the last app window seen was restricted or lock-covered; unknown counts as restricted. */
     private boolean foregroundRestricted = true;
+    /** The app behind the lock screen, taken at screen off: lock-screen windows must not change it. */
+    private boolean restrictedAtLock = true;
     private WindowManager windows;
     private ScrollView overlay;
     private TextView countdown;
@@ -53,10 +55,11 @@ public final class PauseService extends AccessibilityService {
                 if (calls.screenOn(((KeyguardManager) getSystemService(KEYGUARD_SERVICE)).isKeyguardLocked(), call)) goHome();
                 return;
             }
-            if (Intent.ACTION_SCREEN_OFF.equals(action)) calls.screenOff(currentState() != DelayGate.State.AWAY);
+            if (Intent.ACTION_SCREEN_OFF.equals(action)) { calls.screenOff(currentState() != DelayGate.State.AWAY); restrictedAtLock = foregroundRestricted; }
             leave();
-            // Only a restricted (or unknown) app behind the lock screen is sent Home on unlock.
-            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && foregroundRestricted) performGlobalAction(GLOBAL_ACTION_HOME);
+            // A restricted app behind the lock screen is checked again: an open window keeps it,
+            // otherwise the blocker returns. No new window event comes for it, so this is the entry.
+            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && restrictedAtLock) enterRestricted();
         }
     };
     private final Runnable tick = new Runnable() {

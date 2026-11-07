@@ -48,7 +48,7 @@ final class AppPolicy {
             "com.android.dialer", "com.google.android.dialer", "com.samsung.android.dialer",
             "com.samsung.android.incallui",
             "com.android.mms", "com.google.android.apps.messaging", "com.samsung.android.messaging",
-            "com.android.emergency", "com.android.permissioncontroller", "com.google.android.permissioncontroller");
+            "com.android.emergency", "com.samsung.android.app.aodservice", "com.samsung.android.biometrics.app.setting", "com.android.permissioncontroller", "com.google.android.permissioncontroller");
         collect(essential, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME));
         collect(essential, new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_CONTACTS));
         collect(essential, new Intent(android.provider.Settings.ACTION_SETTINGS));

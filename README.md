@@ -88,8 +88,9 @@ Incoming phone calls can be answered. System in-call screens, including Samsung'
 qualifies only as the default dialer. While a call rings the blocker is hidden,
 with its state and timers untouched, and it returns when ringing stops. During an
 answered call restricted apps stay blocked, as hiding applies to ringing only.
-On unlock, Home is forced only when the app behind the lock screen is restricted
-(or unknown); an allowed app stays open. Home is not forced on unlock or service
+On unlock, an allowed app stays open. A restricted (or unknown) app behind the lock
+screen, as recorded at screen off, is checked again: an open window keeps it, else the
+blocker returns. Home is not forced on unlock or service
 reconnect during a call. Turning the
 screen back on before the phone locks returns Home if a block was active.
 
