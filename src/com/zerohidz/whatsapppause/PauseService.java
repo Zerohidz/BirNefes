@@ -247,6 +247,10 @@ public final class PauseService extends AccessibilityService {
             countdown = label("30", 80);
             countdown.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             content.addView(countdown);
+            int used = remote == null ? gate.used() : remote.used();
+            int rights = remote == null ? 5 - gate.used() : remote.rights();
+            if (used >= 0) content.addView(label("Bugünkü " + (used + 1) + ". molan"
+                + (rights > 0 ? " · bundan sonra " + (rights - 1) + " hakkın kalacak" : ""), 18));
         }
         content.addView(label(connecting ? "Birazdan devam edeceksin." : offline ? "Bağlantı kurulmadan yeni kullanım hakkı açılamaz." : waiting ? "30 saniyelik mola bitince otomatik devam edeceksin."
             : state == DelayGate.State.EXPIRED ? "Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar."

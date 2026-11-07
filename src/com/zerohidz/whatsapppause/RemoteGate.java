@@ -20,6 +20,10 @@ public final class RemoteGate {
     private boolean busy;
     private int emergencyRemaining = -1;
     public int emergencyRemaining() { return emergencyRemaining; }
+    private int used = -1, rights = -1;
+    /** Rights already used today and rights still open, from the last server answer; -1 if unknown. */
+    public int used() { return used; }
+    public int rights() { return rights; }
     public void emergency() {
         if (busy || state == DelayGate.State.ALLOWED || state == DelayGate.State.AWAY) return;
         attempt = UUID.randomUUID().toString();
@@ -80,6 +84,8 @@ public final class RemoteGate {
                 }
                 try {
                     emergencyRemaining = result.optInt("emergencyRemaining", -1);
+                    used = result.optInt("used", -1);
+                    rights = result.optInt("remaining", -1);
                     String value = result.getString("state");
                     long serverNow = result.getLong("serverNow");
                     long roundTrip = elapsed - sent;
