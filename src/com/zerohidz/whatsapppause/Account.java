@@ -77,6 +77,21 @@ final class Account {
             .putBoolean("mailError", guard.optBoolean("mailError"))
             .commit();
     }
+    /** The last extra limit the server reported, from prefs. A local-only build never has one. */
+    static ExtraLimit extra(Context context) {
+        if (!SyncConfig.ENABLED) return new ExtraLimit(0, 0, false);
+        SharedPreferences saved = context.getApplicationContext().getSharedPreferences("extra", Context.MODE_PRIVATE);
+        return new ExtraLimit(saved.getLong("allUntil", 0), saved.getLong("videoUntil", 0), saved.getBoolean("endPending", false));
+    }
+    /** Saves the extra fields of a server answer; an answer without them keeps the last ones. */
+    static void rememberExtra(Context context, JSONObject answer) {
+        if (answer == null || !answer.has("extraAllUntil")) return;
+        context.getApplicationContext().getSharedPreferences("extra", Context.MODE_PRIVATE).edit()
+            .putLong("allUntil", answer.optLong("extraAllUntil"))
+            .putLong("videoUntil", answer.optLong("extraVideoUntil"))
+            .putBoolean("endPending", answer.optBoolean("extraEndPending"))
+            .commit();
+    }
     private static String register(String install) throws IOException {
         try {
             Response response = call("POST", "/v1/register", null, new JSONObject().put("kind", "android").put("install", install));

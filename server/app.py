@@ -75,7 +75,7 @@ SCHEMA = [
         PRIMARY KEY(account_id,device,attempt))""",
     # One pending guardian request per account; a new one replaces the old.
     """CREATE TABLE IF NOT EXISTS guard_requests (
-        account_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('verify','change','release')),
+        account_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('verify','change','release','extra')),
         token_hash TEXT NOT NULL UNIQUE, email TEXT, reason TEXT NOT NULL, expires INTEGER NOT NULL)""",
 ]
 ACCOUNT_COLUMNS = {
@@ -84,18 +84,25 @@ ACCOUNT_COLUMNS = {
     'mail_day': "TEXT NOT NULL DEFAULT ''",
     'mail_count': 'INTEGER NOT NULL DEFAULT 0',
     'mail_error': 'INTEGER NOT NULL DEFAULT 0',
+    # Extra limits the user starts on top of the normal rules; 0 means none.
+    'extra_video_until': 'INTEGER NOT NULL DEFAULT 0',
+    'extra_all_until': 'INTEGER NOT NULL DEFAULT 0',
 }
+EXTRA_SCOPES = {'video': 'extra_video_until', 'all': 'extra_all_until'}
+EXTRA_MINUTES = (30, 60, 120, 240)
 CODE_LETTERS = 'ACDEFGHJKMNPQRTUVWXY'
 CODE_LIFETIME = 600_000
 GUARD_LIFETIME = 86_400_000
 MAIL_LIMIT = 10
-DECISIONS = {'verify': ('confirm',), 'change': ('approve', 'deny'), 'release': ('1h', '24h', 'permanent', 'deny')}
+DECISIONS = {'verify': ('confirm',), 'change': ('approve', 'deny'), 'release': ('1h', '24h', 'permanent', 'deny'),
+             'extra': ('end', 'deny')}
 RELEASES = {'1h': 3_600_000, '24h': 86_400_000}
 PUBLIC_URL = os.environ.get('BIRNEFES_PUBLIC_URL', 'https://zmanga.zerohidz.com/bir-nefes').rstrip('/')
 SUBJECT = 'Bir Nefes: onayın isteniyor'
 KIND_TEXT = {'verify': 'Seni onaylayıcı (kardeş) olarak eklemek istiyor.',
              'change': 'Onaylayıcı adresini değiştirmek istiyor.',
-             'release': 'Kilidin açılmasına izin vermeni istiyor.'}
+             'release': 'Kilidin açılmasına izin vermeni istiyor.',
+             'extra': 'Kendi başlattığı ek kısıtı erken bitirmek istiyor.'}
 
 def mask(email):
     if not email:
@@ -131,6 +138,13 @@ class Store:
                 db.execute(f'ALTER TABLE {table} RENAME TO old_{table}')
             for statement in SCHEMA:
                 db.execute(statement)
+            # Older databases have a kind CHECK without 'extra'; pending requests are copied over.
+            sql = db.execute("SELECT sql FROM sqlite_master WHERE name='guard_requests'").fetchone()[0]
+            if "'extra'" not in sql:
+                db.execute('ALTER TABLE guard_requests RENAME TO old_guard_requests')
+                db.execute(next(s for s in SCHEMA if 'guard_requests' in s))
+                db.execute('INSERT INTO guard_requests SELECT * FROM old_guard_requests')
+                db.execute('DROP TABLE old_guard_requests')
             for name, declaration in ACCOUNT_COLUMNS.items():
                 if name not in columns('accounts'):
                     db.execute(f'ALTER TABLE accounts ADD COLUMN {name} {declaration}')
@@ -224,15 +238,17 @@ class Store:
             if late and q['kind'] == 'normal' and q['end'] > cutoff and not q['night']:
                 q['night'] = 1
                 q['end'] = min(q['end'], cutoff + NIGHT_WINDOW)
-            allowed = q['end'] > now
-            available = q['used'] < 5 and (not late or not q['night'])
+            extra = self.extra_view(db, account, now)
+            limited = extra['extraAllUntil'] > 0
+            allowed = q['end'] > now and not limited
+            available = q['used'] < 5 and (not late or not q['night']) and not limited
             state = 'allowed' if allowed else 'idle' if available else 'exhausted'
             month = day[:7]
             emergency = dict(db.execute('SELECT * FROM emergency WHERE account_id=?', (account,)).fetchone())
             if emergency['month'] != month:
                 emergency.update(month=month, used=0)
             ready = 0
-            if operation in ('emergency', 'emergency_video') and (not allowed or (operation == 'emergency_video' and q['kind'] != 'emergency')):
+            if not limited and operation in ('emergency', 'emergency_video') and (not allowed or (operation == 'emergency_video' and q['kind'] != 'emergency')):
                 seen = db.execute('SELECT 1 FROM emergency_requests WHERE account_id=? AND device=? AND attempt=?',
                                   (account, device, attempt)).fetchone()
                 if seen:
@@ -278,11 +294,14 @@ class Store:
                         session=q['session'], used=q['used'],
                         remaining=0 if late and q['night'] else min(5-q['used'], 1 if late else 5),
                         renewalAt=renewal, budgetDay=day, sessionKind=q['kind'],
-                        emergencyRemaining=4-emergency['used'], emergencyMonth=month)
+                        emergencyRemaining=4-emergency['used'], emergencyMonth=month, **extra)
 
     def video_request(self, account, device, operation, attempt, now):
         # Emergency allocation stays under the same atomic monthly ledger.
-        if operation == 'video_emergency':
+        with self.connect() as db:
+            extra = self.extra_view(db, account, now)
+        limit_until = max(extra['extraVideoUntil'], extra['extraAllUntil'])
+        if operation == 'video_emergency' and not limit_until:
             self.request(account, device, 'emergency_video', attempt, now)
         day, cutoff, renewal = bounds(now)
         date = datetime.fromisoformat(day).date()
@@ -302,7 +321,7 @@ class Store:
             # Account the union of active leases: multiple tabs do not multiply
             # consumption. No client clock/duration is accepted as authority.
             grant = db.execute('SELECT * FROM quota WHERE account_id=?', (account,)).fetchone()
-            urgent = grant['kind'] == 'emergency' and grant['end'] > now
+            urgent = grant['kind'] == 'emergency' and grant['end'] > now and not limit_until
             charge_end = min(now, grant['end'] - EMERGENCY_WINDOW) if urgent else now
             elapsed = max(0, min(charge_end, lease_end, seventeen) - max(q['accounted'], eight))
             q['spent'] = min(VIDEO_BUDGET, q['spent'] + elapsed)
@@ -314,7 +333,9 @@ class Store:
             emergency = db.execute('SELECT * FROM emergency WHERE account_id=?', (account,)).fetchone()
             emergency_left = 4 - emergency['used'] if emergency['month'] == day[:7] else 4
             closed = db.execute('SELECT 1 FROM video_closed WHERE account_id=? AND device=? AND attempt=?', (account, device, attempt)).fetchone()
-            if urgent:
+            if limit_until:
+                state, mode, end = 'exhausted', 'limited', now
+            elif urgent:
                 db.execute('DELETE FROM video_clients WHERE account_id=?', (account,))
                 state, mode, end = 'allowed', 'emergency', grant['end']
             elif five <= now < eight or seventeen <= now < cutoff or (weekend and five <= now < cutoff):
@@ -336,7 +357,46 @@ class Store:
                         session=grant['session'] if urgent else 0, sessionKind=mode,
                         videoRemainingMs=VIDEO_BUDGET-q['spent'], emergencyRemaining=emergency_left,
                         budgetDay=day, renewalAt=renewal, readyAt=0, remaining=0,
-                        nextChangeAt=(five if now < five else cutoff if weekend and now < cutoff else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
+                        **extra,
+                        nextChangeAt=limit_until or (five if now < five else cutoff if weekend and now < cutoff else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
+
+    def extra_view(self, db, account, now):
+        a = db.execute('SELECT extra_video_until, extra_all_until FROM accounts WHERE id=?', (account,)).fetchone()
+        video = a['extra_video_until'] if a and a['extra_video_until'] > now else 0
+        every = a['extra_all_until'] if a and a['extra_all_until'] > now else 0
+        pending = db.execute("SELECT 1 FROM guard_requests WHERE account_id=? AND kind='extra' AND expires>?", (account, now)).fetchone()
+        return dict(extraVideoUntil=video, extraAllUntil=every, extraEndPending=bool(pending))
+
+    def start_extra(self, account, scope, minutes, now=None):
+        # Only lengthens: a running limit is never shortened from a device.
+        now = int(time.time() * 1000) if now is None else now
+        until = bounds(now)[2] if minutes == 'day' else now + minutes * 60_000
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self.ensure(db, account)
+            db.execute('INSERT OR IGNORE INTO accounts(id,created) VALUES(?,?)', (account, now))
+            db.execute(f'UPDATE accounts SET {EXTRA_SCOPES[scope]}=MAX({EXTRA_SCOPES[scope]},?) WHERE id=?', (until, account))
+            if scope == 'all':
+                # An open shared window or urgent pass closes now.
+                db.execute('UPDATE quota SET end=MIN(end,?) WHERE account_id=?', (now, account))
+            return 200, self.extra_view(db, account, now)
+
+    def end_extra(self, account, reason, now=None):
+        now = int(time.time() * 1000) if now is None else now
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            current = db.execute('SELECT guardian_email FROM accounts WHERE id=?', (account,)).fetchone()[0]
+            view = self.extra_view(db, account, now)
+            if not view['extraVideoUntil'] and not view['extraAllUntil']:
+                return 409, {'error': 'no_extra'}
+            if not current:
+                return 409, {'error': 'no_guardian'}
+            message = self.issue(db, account, 'extra', None, reason, current, now)
+            if message is None:
+                return 429, {'error': 'mail_limit'}
+            view = self.extra_view(db, account, now)
+        self.send(message)
+        return 200, view
 
     def guard_view(self, db, account, now):
         a = db.execute('SELECT guardian_email, released_until, mail_error FROM accounts WHERE id=?', (account,)).fetchone()
@@ -423,6 +483,8 @@ class Store:
             elif kind == 'change' and decision == 'approve':
                 # The guardian already approved, so the daily mail cap does not block it.
                 message = self.issue(db, account, 'verify', row['email'], '', row['email'], now, limited=False)
+            elif kind == 'extra' and decision == 'end':
+                db.execute('UPDATE accounts SET extra_video_until=0, extra_all_until=0 WHERE id=?', (account,))
             elif decision in RELEASES:
                 db.execute('UPDATE accounts SET released_until=MAX(released_until,?) WHERE id=?',
                            (now + RELEASES[decision], account))
@@ -505,13 +567,14 @@ const KIND = {
   release: 'Kullanıcı kilidin açılmasını istiyor.'
 };
 const LABEL = {confirm: 'Onaylıyorum', approve: 'İzin ver', deny: 'Reddet',
-  '1h': '1 saatliğine aç', '24h': '24 saatliğine aç', permanent: 'Kilidi kalıcı kaldır (onaylayıcılıktan çık)'};
+  end: 'Ek kısıtı bitir', '1h': '1 saatliğine aç', '24h': '24 saatliğine aç', permanent: 'Kilidi kalıcı kaldır (onaylayıcılıktan çık)'};
 function done(r) {
   buttons.textContent = '';
   if (r.decision === 'deny') result.textContent = 'İstek reddedildi.';
   else if (r.decision === 'confirm') result.textContent = 'Onaylayıcı oldun. Kilit başladı.';
   else if (r.decision === 'approve') result.textContent = 'Değişikliğe izin verildi. Yeni adrese doğrulama maili gönderildi.';
   else if (r.decision === 'permanent') result.textContent = 'Kilit kalıcı olarak kaldırıldı. Artık onaylayıcı değilsin.';
+  else if (r.decision === 'end') result.textContent = 'Ek kısıt bitirildi.';
   else result.textContent = 'Kilit açıldı: ' + new Date(r.releasedUntil).toLocaleString('tr-TR') + ' saatine kadar.';
 }
 function decide(decision) {
@@ -602,6 +665,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, self.server.store.pair_code(account))
             if path in ('/v1/guardian', '/v1/release') and self.command == 'POST':
                 return self.guardian(account, path)
+            if path == '/v1/extra' and self.command == 'POST':
+                try:
+                    payload = self.body()
+                except ValueError:
+                    return self.reply(400, {'error': 'invalid_body'})
+                scope, minutes = payload.get('scope'), payload.get('minutes')
+                if scope not in EXTRA_SCOPES or not (minutes == 'day' or (type(minutes) is int and minutes in EXTRA_MINUTES)):
+                    return self.reply(400, {'error': 'invalid_extra'})
+                return self.reply(*self.server.store.start_extra(account, scope, minutes))
+            if path == '/v1/extra-end' and self.command == 'POST':
+                try:
+                    reason = self.body(2048).get('reason') or ''
+                except ValueError:
+                    return self.reply(400, {'error': 'invalid_body'})
+                if not isinstance(reason, str) or len(reason) > 200:
+                    return self.reply(400, {'error': 'invalid_reason'})
+                reason = ''.join(c if c.isprintable() else ' ' for c in reason).strip()
+                return self.reply(*self.server.store.end_extra(account, reason))
             operation = {'/v1/status': 'status', '/v1/enter': 'enter', '/v1/complete': 'complete', '/v1/emergency': 'emergency',
                          '/v1/video-status': 'video_status', '/v1/video-enter': 'video_enter',
                          '/v1/video-tick': 'video_tick', '/v1/video-stop': 'video_stop',

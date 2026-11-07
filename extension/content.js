@@ -2,7 +2,7 @@
   if (birNefesCategory(location.href) !== 'messaging') return;
   let state = 'connecting', attempt = '', generation = 0, deadline = 0;
   let lastMuted;
-  let emergencyRemaining = -1, confirming = false;
+  let emergencyRemaining = -1, confirming = false, extraUntil = 0;
   let wallDeadline = 0, ready = 0, session = 0, busy = false, pollAt = 0;
   const host = document.createElement('bir-nefes-blocker');
   host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;display:block;visibility:visible;';
@@ -31,11 +31,12 @@
     }
     if (document.body) document.body.inert = !allowed;
     const titles = {connecting:'Hakların kontrol ediliyor…', waiting:'Bir nefes al.', expired:'Kullanım süren doldu.', exhausted:'Bugünkü hakkın bitti.', error:'Sunucuya ulaşılamadı.', unpaired:'Bir Nefes’i eşleştir.'};
-    $('title').textContent = titles[state] || '';
-    $('detail').textContent = state === 'waiting' ? 'Şu an bu siteye neden giriyorsun?' : state === 'connecting' ? 'Telefon ve bilgisayar aynı hakkı paylaşır.' : state === 'error' ? 'Bağlantını kontrol edip yeniden gir.' : state === 'unpaired' ? 'Eklenti simgesine tıkla.' : 'Ekrandan ayrılma zamanı.';
-    $('note').textContent = state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : state === 'unpaired' ? 'Telefondaki kodu gir. Sonra bu sayfayı yenile.' : 'Birazdan devam edeceksin.';
+    const extra = state === 'exhausted' && extraUntil > 0;
+    $('title').textContent = extra ? 'Ek kısıt açık.' : titles[state] || '';
+    $('detail').textContent = extra ? `${birNefesUntil(extraUntil)} kendi koyduğun kısıt sürüyor.` : state === 'waiting' ? 'Şu an bu siteye neden giriyorsun?' : state === 'connecting' ? 'Telefon ve bilgisayar aynı hakkı paylaşır.' : state === 'error' ? 'Bağlantını kontrol edip yeniden gir.' : state === 'unpaired' ? 'Eklenti simgesine tıkla.' : 'Ekrandan ayrılma zamanı.';
+    $('note').textContent = extra ? 'Erken bitirmek için kardeşinden izin iste.' : state === 'waiting' ? '30 saniyelik mola bitince otomatik devam edeceksin.' : state === 'expired' ? 'Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar.' : state === 'exhausted' ? 'Hakların her gün 03.00’te yenilenir.' : state === 'error' ? 'Bağlantı kurulmadan yeni kullanım hakkı açılamaz.' : state === 'unpaired' ? 'Telefondaki kodu gir. Sonra bu sayfayı yenile.' : 'Birazdan devam edeceksin.';
     $('count').hidden = state !== 'waiting';
-    $('urgent').hidden = allowed || state === 'connecting' || state === 'unpaired' || emergencyRemaining === 0;
+    $('urgent').hidden = allowed || extra || state === 'connecting' || state === 'unpaired' || emergencyRemaining === 0;
     $('urgent').textContent = confirming ? 'Aylık 1 hakkı kullan ve aç' : `Acele geçişi · 20 dakika${emergencyRemaining >= 0 ? ` · ${emergencyRemaining}/4 kaldı` : ''}`;
     $('urgent-note').hidden = $('urgent').hidden;
     $('urgent-note').textContent = 'Günlük hakkından düşmez. Ayda 4 kez; ayın 1’inde 03.00’te yenilenir. İnternet gerekir.';
@@ -66,6 +67,7 @@
       if (operation === 'status' && (state !== 'allowed' || expired())) { render('expired'); return; }
       if (!result || result.error) { if (state !== 'allowed') render(result?.error === 'unpaired' ? 'unpaired' : 'error'); return; }
       emergencyRemaining = Number.isInteger(result.emergencyRemaining) ? result.emergencyRemaining : -1;
+      extraUntil = result.extraAllUntil > result.serverNow ? result.extraAllUntil : 0;
       if (result.state === 'allowed') {
         if (operation === 'status' && result.session !== session) { render('expired'); return; }
         const left = Math.max(0, result.expiresAt - result.serverNow - result.transitMs);

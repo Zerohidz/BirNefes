@@ -243,6 +243,21 @@ public final class PauseService extends AccessibilityService {
         boolean waiting = state == DelayGate.State.WAITING;
         boolean connecting = state == DelayGate.State.CONNECTING;
         boolean offline = state == DelayGate.State.ERROR;
+        if (remote != null && state == DelayGate.State.EXHAUSTED && remote.extraAllActive()) {
+            // The user's own extra limit: no rights, no urgent pass until it ends.
+            content.addView(label("Ek kısıt açık.", 32));
+            String until = ExtraLimit.until(remote.extraAllUntil(), System.currentTimeMillis());
+            content.addView(label(until.substring(0, 1).toUpperCase(java.util.Locale.forLanguageTag("tr")) + until.substring(1)
+                + " kendi koyduğun kısıt sürüyor.", 18));
+            content.addView(label(Account.guard(this).guardian == null ? "Kardeş ekli olmadığı için süre dolmadan bitmez."
+                : remote.extraEndPending() ? "Erken bitirme isteğin kardeşinin kararını bekliyor."
+                : "Erken bitirmek için uygulamadan kardeşinden izin iste.", 16));
+            Button home = Ui.primary(this, "Ana sayfaya dön");
+            home.setOnClickListener(v -> goHome());
+            content.addView(home);
+            attachOverlay();
+            return;
+        }
         content.addView(label(connecting ? "Hakların kontrol ediliyor…" : offline ? "Sunucuya ulaşılamadı." : waiting ? "Bir nefes al." : state == DelayGate.State.EXPIRED
             ? "Kullanım süren doldu." : "Bugünkü hakkın bitti.", 32));
         content.addView(label(connecting ? "Telefon ve bilgisayar aynı hakkı paylaşır." : offline ? "Bağlantını kontrol edip yeniden gir." : waiting ? "Şu an bu uygulamaya neden giriyorsun?"

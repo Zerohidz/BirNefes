@@ -36,6 +36,8 @@ public final class MainActivity extends Activity {
     private LinearLayout updateCard;
     private TextView updateTitle, updateNote;
     private Button updateButton;
+    private TextView extraStatus, extraNote;
+    private Button extraStart, extraEnd;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         settings = getSharedPreferences(CheckDelay.PREFERENCES, MODE_PRIVATE);
@@ -61,7 +63,10 @@ public final class MainActivity extends Activity {
         restrictedNote = Ui.muted(this, "APK dosyasından kurulumda Android, uygulama bilgileri menüsünden “Kısıtlanmış ayarlara izin ver” adımını isteyebilir.", 14);
         card.addView(restrictedNote, Ui.topMargin(this, 12));
         page.addView(card, Ui.topMargin(this, 16));
-        if (SyncConfig.ENABLED) page.addView(accountCard(), Ui.topMargin(this, 16));
+        if (SyncConfig.ENABLED) {
+            page.addView(accountCard(), Ui.topMargin(this, 16));
+            page.addView(extraCard(), Ui.topMargin(this, 16));
+        }
 
         callPermission = Ui.secondary(this, "Aramalar için izin ver");
         callPermission.setOnClickListener(v -> requestPermissions(new String[] {Manifest.permission.READ_PHONE_STATE}, 1));
@@ -238,6 +243,116 @@ public final class MainActivity extends Activity {
         form.addView(input, Ui.topMargin(this, 8));
         return form;
     }
+    /** The user's own extra limit: started here, ended early only by the guardian. */
+    private LinearLayout extraCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int padding = Ui.dp(this, 16);
+        card.setPadding(padding, padding, padding, padding);
+        card.setBackground(Ui.shape(this, Ui.SECONDARY, Ui.STROKE));
+        card.addView(Ui.text(this, "Ek kısıt", 20, true));
+        extraStatus = Ui.muted(this, "", 15);
+        card.addView(extraStatus, Ui.topMargin(this, 6));
+        extraStart = Ui.secondary(this, "Ek kısıt başlat");
+        extraStart.setOnClickListener(v -> chooseExtraScope());
+        card.addView(extraStart);
+        extraEnd = Ui.secondary(this, "Erken bitirmek için izin iste");
+        extraEnd.setOnClickListener(v -> askExtraEnd());
+        card.addView(extraEnd);
+        extraNote = Ui.muted(this, "", 14);
+        card.addView(extraNote, Ui.topMargin(this, 8));
+        return card;
+    }
+    /** Draws the extra limit from the last saved answer; every server answer saves and redraws. */
+    private void showExtra(String message) {
+        if (extraStatus == null) return;
+        ExtraLimit extra = Account.extra(this);
+        long now = System.currentTimeMillis();
+        boolean active = extra.active(now);
+        StringBuilder lines = new StringBuilder();
+        if (extra.all(now)) lines.append("Her şey kısıtlı · ").append(ExtraLimit.until(extra.allUntil, now));
+        if (extra.video(now)) lines.append(lines.length() > 0 ? "\n" : "").append("Video ve film kısıtlı · ").append(ExtraLimit.until(extra.videoUntil, now));
+        extraStatus.setText(active ? lines.toString()
+            : "Kendine bir süre daha kısıt koy. Süre dolmadan yalnız kardeşin bitirebilir.");
+        extraStart.setText(active ? "Uzat" : "Ek kısıt başlat");
+        boolean noGuardian = Account.guard(this).guardian == null;
+        extraEnd.setVisibility(active && !noGuardian && !extra.endPending ? View.VISIBLE : View.GONE);
+        String note = message != null ? message
+            : !active ? ""
+            : noGuardian ? "Kardeş ekli olmadığı için süre dolmadan bitmez."
+            : extra.endPending ? "Kardeşinin kararı bekleniyor." : "";
+        extraNote.setText(note);
+        extraNote.setVisibility(note.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+    private void chooseExtraScope() {
+        String[] scopes = {"all", "video"};
+        Ui.show(new AlertDialog.Builder(this).setTitle("Ne kısıtlansın?")
+            .setItems(new String[] {"Her şey (telefon ve bilgisayar)", "Video ve film siteleri (bilgisayar)"},
+                (dialog, which) -> chooseExtraDuration(scopes[which]))
+            .setNegativeButton("Vazgeç", null));
+    }
+    private void chooseExtraDuration(String scope) {
+        Object[] minutes = {30, 60, 120, 240, "day"};
+        Ui.show(new AlertDialog.Builder(this).setTitle("Ne kadar sürsün?")
+            .setItems(new String[] {"30 dakika", "1 saat", "2 saat", "4 saat", "Gün sonuna kadar (03.00)"},
+                (dialog, which) -> confirmExtra(scope, minutes[which]))
+            .setNegativeButton("Vazgeç", null));
+    }
+    private void confirmExtra(String scope, Object minutes) {
+        Ui.show(new AlertDialog.Builder(this).setTitle("Ek kısıt başlasın mı?")
+            .setMessage("Başlayınca süre dolmadan kendin bitiremezsin. Erken bitirmek kardeş onayı ister.")
+            .setNegativeButton("Vazgeç", null)
+            .setPositiveButton("Başlat", (dialog, which) -> startExtra(scope, minutes)));
+    }
+    private void startExtra(String scope, Object minutes) {
+        ExtraLimit before = Account.extra(this);
+        long previous = scope.equals("all") ? before.allUntil : before.videoUntil;
+        boolean wasActive = before.active(System.currentTimeMillis());
+        showExtra("Gönderiliyor…");
+        extraRequest("/v1/extra", () -> new org.json.JSONObject().put("scope", scope).put("minutes", minutes), response -> {
+            ExtraLimit after = Account.extra(this);
+            long until = scope.equals("all") ? after.allUntil : after.videoUntil;
+            return until <= previous ? "Seçtiğin süre açık kısıttan kısa, değişiklik olmadı."
+                : wasActive ? "Ek kısıt uzatıldı." : "Ek kısıt başladı.";
+        });
+    }
+    private void askExtraEnd() {
+        EditText input = new EditText(this);
+        input.setFilters(new InputFilter[] {new InputFilter.LengthFilter(200)});
+        input.setTextColor(Ui.TEXT);
+        input.setHint("Kısa gerekçe (isteğe bağlı)");
+        Ui.show(new AlertDialog.Builder(this).setTitle("Erken bitirmek için izin iste").setView(form(
+                "Kardeşine mail gider. Ek kısıtı o bitirebilir.", input))
+            .setNegativeButton("Vazgeç", null)
+            .setPositiveButton("Gönder", (dialog, which) -> {
+                String reason = input.getText().toString().trim();
+                showExtra("Gönderiliyor…");
+                extraRequest("/v1/extra-end", () -> new org.json.JSONObject().put("reason", reason),
+                    response -> "İstek kardeşine gönderildi.");
+            }));
+    }
+    private interface Body { org.json.JSONObject build() throws org.json.JSONException; }
+    private interface Done { String message(Account.Response response); }
+    private void extraRequest(String path, Body body, Done done) {
+        network.execute(() -> {
+            String message;
+            try {
+                Account.Response response = Account.authorized(this, "POST", path, body.build());
+                if (response.status == 200) Account.rememberExtra(this, response.body);
+                String error = response.body.optString("error");
+                message = response.status == 200 ? done.message(response)
+                    : error.equals("no_guardian") ? "Kardeş ekli olmadığı için süre dolmadan bitmez."
+                    : error.equals("no_extra") ? "Açık bir ek kısıt yok."
+                    : error.equals("mail_limit") ? "Bugünkü mail sınırı doldu. Yarın yeniden dene."
+                    : "Sunucuya ulaşılamadı.";
+            } catch (Exception error) {
+                android.util.Log.w("BirNefes", "Extra limit request failed: " + error.getClass().getSimpleName());
+                message = "Sunucuya ulaşılamadı.";
+            }
+            String shown = message;
+            runOnUiThread(() -> { if (!isDestroyed()) showExtra(shown); });
+        });
+    }
     private void showPair(String code, String note) {
         pairCode.setText(code);
         pairCode.setVisibility(code.isEmpty() ? View.GONE : View.VISIBLE);
@@ -308,13 +423,14 @@ public final class MainActivity extends Activity {
             Account.Response response = Account.authorized(this, "GET", "/v1/status", null);
             if (response.status != 200) return;
             Account.rememberGuard(this, response.body.optJSONObject("guard"));
+            Account.rememberExtra(this, response.body);
             int remaining = response.body.optInt("remaining", -1);
             boolean open = "allowed".equals(response.body.optString("state"));
             runOnUiThread(() -> {
                 quota.setText(open ? "Şu an bir kullanım açık" + (remaining >= 0 ? " · Bugün " + remaining + " hak kaldı" : "")
                     : remaining >= 0 ? "Bugün " + remaining + " hak kaldı" : "");
                 quota.setVisibility(remaining >= 0 ? View.VISIBLE : View.GONE);
-                if (!isDestroyed()) showGuard(null);
+                if (!isDestroyed()) { showGuard(null); showExtra(null); }
             });
         }, false);
     }
@@ -427,6 +543,7 @@ public final class MainActivity extends Activity {
         refreshStatus();
         refreshCallPermission();
         showCheckDelay();
+        showExtra(null);
         refreshQuota();
         refreshUpdate();
         if (getIntent().getBooleanExtra(ASK_RELEASE, false)) {

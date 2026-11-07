@@ -7,8 +7,14 @@
 <div id="quota" hidden>
 <section><h2>Telefon + mesajlaşma</h2><p id="status" role="status">Hakların kontrol ediliyor…</p><p id="detail"></p><small>WhatsApp · Telegram<br>Günde 5 × 20 dakika · Önce 30 saniye<br>22.30–03.00: kalan haklardan biri, 5 dakika</small></section>
 <section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><small>YouTube · tranimeizle · fullhdfilmizlesene<br>Hafta içi 05.00–08.00 ve 17.00–22.30 serbest<br>Hafta içi 08.00–17.00 toplam 20 dakika<br>Cumartesi ve pazar 05.00–22.30 serbest<br>22.30–05.00 kapalı</small></section>
+<section id="extra" hidden><h2>Ek kısıt</h2><div id="extra-active" hidden><p id="extra-lines" role="status"></p><p id="extra-pending" class="hint" hidden>Kardeşinin kararı bekleniyor.</p></div><p id="extra-hint" class="hint">Kendine ek bir sınır koy. Süre dolmadan bitiremezsin.</p>
+<label class="field">Kapsam<select id="extra-scope"><option value="video">Video ve film siteleri</option><option value="all">Her şey (telefon ve bilgisayar)</option></select></label>
+<label class="field">Süre<select id="extra-minutes"><option value="30">30 dakika</option><option value="60">1 saat</option><option value="120">2 saat</option><option value="240">4 saat</option><option value="day">Gün sonuna kadar (03.00)</option></select></label>
+<button id="extra-start" class="wide">Başlat</button>
+<div id="extra-end-box" hidden><input id="extra-reason" class="text" maxlength="200" autocomplete="off" placeholder="Neden? (isteğe bağlı)" aria-label="Erken bitirme nedeni"><button id="extra-end" class="ghost">Erken bitirmek için kardeşinden izin iste</button></div>
+<p id="extra-status" role="status"></p></section>
 <p id="urgent"></p><a href="https://web.whatsapp.com/" target="_blank" rel="noopener">WhatsApp Web’i aç</a>
 <section><h2>Telefon</h2><button id="link-phone" class="ghost">Telefonu bağla</button><div id="pair-code" hidden><output id="code-value" aria-live="polite"></output><p id="code-time"></p><p class="hint">Telefondaki Bir Nefes’te bu kodu gir.</p></div><p id="link-status" role="status"></p><button id="switch" class="link">Başka hesaba bağlan</button></section>
 <small>Günlük yenileme 03.00 · İstanbul saati<br>Acele: ayda 4 × 20 dakika · Beklemeden<br>Aylık yenileme: ayın 1’i, 03.00</small>
 </div>
-</main><script src="popup.js"></script></body></html>
+</main><script src="sites.js"></script><script src="popup.js"></script></body></html>

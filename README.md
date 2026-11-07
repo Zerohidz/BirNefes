@@ -130,6 +130,20 @@ right, for at most five minutes. It never becomes a permanent exception.
 **Kontrol süresi** sets how long the blocker waits for the server's answer on a
 fresh entry: 0.5 to 3 seconds in half-second steps, 1 second by default.
 
+## Ek kısıt (extra limit, 1.7.0)
+
+Either device can start a temporary limit on top of the rules: scope **Her şey**
+(every restricted phone app and site: no new right, no urgent pass, an open window
+closes at once) or **Video ve film** (Chrome video/film sites only), for 30 minutes,
+1, 2 or 4 hours, or until the 03:00 renewal. Starting again only lengthens it. It
+cannot be ended from a device: `/v1/extra-end` mails the guardian, whose **Ek kısıtı
+bitir** ends both scopes. Without a guardian it simply runs out.
+
+API: `POST /v1/extra {"scope":"video"|"all","minutes":30|60|120|240|"day"}`,
+`POST /v1/extra-end {"reason"}`; every quota and video answer carries
+`extraAllUntil`, `extraVideoUntil` and `extraEndPending`, and video answers use mode
+`limited` while either is active.
+
 ## Updates (Android 1.6.0)
 
 When the main screen opens, the app reads `https://birnefes.zerohidz.com/surum.json`

@@ -4,10 +4,12 @@ async function showQuota() {
   try {
     const r=await chrome.runtime.sendMessage({operation:'status'});
     if(!r || r.error) throw new Error('offline');
+    showExtra(r);
     document.getElementById('urgent').textContent = `${r.emergencyRemaining ?? '—'}/4 acele hakkı · Ayın 1’inde 03.00’te yenilenir`;
-    status.textContent=r.state==='allowed' ? 'Ortak kullanımın açık' : `${r.remaining} hakkın kaldı`;
-    detail.textContent=r.state==='allowed' ? `Bitiş: ${new Date(r.expiresAt).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'})}. Cihaz değiştirmen bu süreyi uzatmaz.` : r.remaining === 0 ? 'Hakların her gün 03.00’te yenilenir. Şimdilik mola zamanı.' : 'Yeni bir kullanımda önce kısa bir mola vereceksin.';
-  } catch {status.textContent='Sunucuya ulaşılamadı';detail.textContent='Bağlantı kurulmadan yeni hak açılamaz. İnternet bağlantını kontrol et.';}
+    const limited=r.extraAllUntil > r.serverNow;
+    status.textContent=limited ? 'Ek kısıt açık' : r.state==='allowed' ? 'Ortak kullanımın açık' : `${r.remaining} hakkın kaldı`;
+    detail.textContent=limited ? `${birNefesUntil(r.extraAllUntil)} kendi koyduğun kısıt sürüyor.` : r.state==='allowed' ? `Bitiş: ${new Date(r.expiresAt).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'})}. Cihaz değiştirmen bu süreyi uzatmaz.` : r.remaining === 0 ? 'Hakların her gün 03.00’te yenilenir. Şimdilik mola zamanı.' : 'Yeni bir kullanımda önce kısa bir mola vereceksin.';
+  } catch {$('extra').hidden=true;status.textContent='Sunucuya ulaşılamadı';detail.textContent='Bağlantı kurulmadan yeni hak açılamaz. İnternet bağlantını kontrol et.';}
 })();
 (async () => {
   const status=document.getElementById('video-status'), detail=document.getElementById('video-detail');
@@ -15,7 +17,7 @@ async function showQuota() {
     const r=await chrome.runtime.sendMessage({operation:'video-status'});
     if(!r || r.error) throw new Error('offline');
     const seconds=Math.floor(r.videoRemainingMs/1000);
-    status.textContent=r.mode==='free' ? 'Şu an serbest' : r.mode==='emergency' ? 'Acele geçişin açık' : r.mode==='night' ? 'Sabah 05.00’te açılır' : `${Math.floor(seconds/60)} dk ${seconds%60} sn kaldı`;
+    status.textContent=r.mode==='free' ? 'Şu an serbest' : r.mode==='emergency' ? 'Acele geçişin açık' : r.mode==='night' ? 'Sabah 05.00’te açılır' : r.mode==='limited' ? 'Ek kısıt açık' : `${Math.floor(seconds/60)} dk ${seconds%60} sn kaldı`;
     detail.textContent='Bu süre mesajlaşma haklarından ayrıdır. Sayaçlı saatlerde sekmeden ayrılınca video durur, serbest saatlerde arka planda da çalar.';
   } catch {status.textContent='Süre kontrol edilemedi';detail.textContent='Sunucu bağlantısını kontrol et.';}
 })();
@@ -23,7 +25,7 @@ async function showQuota() {
 
 const $ = id => document.getElementById(id);
 const send = message => chrome.runtime.sendMessage(message).catch(() => ({error:'offline'}));
-const failures = {offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', locked:'Kardeş kilidi açıkken hesap değiştirilemez. Telefondan izin iste.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
+const failures = {no_guardian:'Kardeş ekli olmadığı için süre dolmadan bitmez.', mail_limit:'Bugünkü e-posta sınırı doldu. Yarın yeniden dene.', no_extra:'Açık bir ek kısıt yok.', invalid:'Seçimini kontrol et.', offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', locked:'Kardeş kilidi açıkken hesap değiştirilemez. Telefondan izin iste.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
 
 async function joined(button, message) {
   const status = $('join-status');
@@ -71,3 +73,49 @@ function show(paired) {
   if (paired) showQuota(); else $('code').focus();
 }
 send({operation:'account'}).then(r => show(!!r?.paired));
+
+// Ek kısıt: the server only lengthens it, so the start button asks twice before sending.
+let extraActive = false, extraConfirm = false, extraBefore = '';
+function extraButton() {
+  const verb = extraActive ? 'uzat' : 'başlat';
+  $('extra-start').textContent = extraConfirm ? `Eminim, ${verb} · süre dolmadan bitiremezsin` : extraActive ? 'Uzat' : 'Başlat';
+}
+function showExtra(r) {
+  const all = r.extraAllUntil > r.serverNow ? r.extraAllUntil : 0;
+  const video = r.extraVideoUntil > r.serverNow ? r.extraVideoUntil : 0;
+  extraActive = !!(all || video); extraConfirm = false;
+  extraBefore = `${all}:${video}`;
+  const lines = [];
+  if (all) lines.push(`Her şey kısıtlı · ${birNefesUntil(all)}`);
+  if (video > all) lines.push(`Video ve film kısıtlı · ${birNefesUntil(video)}`);
+  $('extra-lines').textContent = lines.join('\n');
+  $('extra-active').hidden = !extraActive;
+  $('extra-pending').hidden = !(extraActive && r.extraEndPending === true);
+  $('extra-hint').hidden = extraActive;
+  $('extra-end-box').hidden = !extraActive;
+  extraButton(); $('extra').hidden = false;
+}
+for (const id of ['extra-scope','extra-minutes']) $(id).addEventListener('change', () => { extraConfirm = false; extraButton(); });
+$('extra-start').addEventListener('click', async () => {
+  const button = $('extra-start');
+  $('extra-status').textContent = '';
+  if (!extraConfirm) { extraConfirm = true; extraButton(); return; }
+  const value = $('extra-minutes').value;
+  button.disabled = true;
+  const r = await send({operation:'extra', scope:$('extra-scope').value, minutes: value === 'day' ? 'day' : Number(value)});
+  button.disabled = false; extraConfirm = false; extraButton();
+  if (!r || r.error) { $('extra-status').textContent = failures[r?.error] || failures.offline; return; }
+  const unchanged = `${r.extraAllUntil}:${r.extraVideoUntil}` === extraBefore;
+  await showQuota();
+  if (unchanged) $('extra-status').textContent = 'Açık kısıt zaten daha uzun. Süre değişmedi.';
+});
+$('extra-end').addEventListener('click', async () => {
+  const button = $('extra-end');
+  button.disabled = true; $('extra-status').textContent = '';
+  const r = await send({operation:'extra-end', reason:$('extra-reason').value.trim().slice(0, 200)});
+  button.disabled = false;
+  if (!r || r.error) { $('extra-status').textContent = failures[r?.error] || failures.offline; if (r?.error === 'no_extra') showQuota(); return; }
+  $('extra-reason').value = '';
+  $('extra-pending').hidden = !r.extraEndPending;
+  $('extra-status').textContent = r.extraEndPending ? 'İstek kardeşine e-postayla gitti.' : '';
+});

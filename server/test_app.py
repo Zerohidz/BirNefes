@@ -154,6 +154,52 @@ class PolicyTests(unittest.TestCase):
         upgraded=Store(path)
         self.assertEqual(upgraded.request(1,'phone','status',now=self.t)['used'],3)
 
+    def test_extra_all_blocks_rights_urgent_and_open_window(self):
+        t=at('2026-10-01T10:00:00')
+        self.store.request(1,'phone','enter','attempt-000000000001',t)
+        r=self.store.request(1,'phone','complete','attempt-000000000001',t+30_000)
+        self.assertEqual(r['state'],'allowed')
+        code,view=self.store.start_extra(1,'all',60,t+60_000)
+        self.assertEqual((code,view['extraAllUntil']),(200,t+60_000+3_600_000))
+        r=self.store.request(1,'phone','status',now=t+61_000)
+        self.assertEqual((r['state'],r['extraAllUntil']),('exhausted',t+60_000+3_600_000))
+        r=self.store.request(1,'phone','enter','attempt-000000000002',t+62_000)
+        self.assertEqual(r['state'],'exhausted')
+        r=self.store.request(1,'phone','emergency','attempt-000000000003',t+63_000)
+        self.assertEqual((r['state'],r['emergencyRemaining']),('exhausted',4))
+        r=self.store.request(1,'chrome','video_enter','video-0000000000a1',t+64_000)
+        self.assertEqual((r['state'],r['mode']),('exhausted','limited'))
+        # A shorter request never shortens it; after it ends the normal rules return.
+        self.assertEqual(self.store.start_extra(1,'all',30,t+65_000)[1]['extraAllUntil'],t+60_000+3_600_000)
+        r=self.store.request(1,'phone','enter','attempt-000000000004',t+60_000+3_600_001)
+        self.assertEqual((r['state'],r['used']),('waiting',1))
+
+    def test_extra_video_blocks_only_video_until_the_day_ends(self):
+        t=at('2026-10-03T12:00:00')
+        code,view=self.store.start_extra(1,'video','day',t)
+        self.assertEqual(view['extraVideoUntil'],at('2026-10-04T03:00:00'))
+        r=self.store.request(1,'chrome','video_enter','video-0000000000b1',t+1000)
+        self.assertEqual((r['state'],r['mode'],r['nextChangeAt']),('exhausted','limited',at('2026-10-04T03:00:00')))
+        r=self.store.request(1,'chrome','video_emergency','video-0000000000b2',t+2000)
+        self.assertEqual((r['state'],r['emergencyRemaining']),('exhausted',4))
+        self.assertEqual(self.store.request(1,'phone','enter','attempt-0000000000b3',t+3000)['state'],'waiting')
+
+    def test_extra_ends_only_with_guardian_decision(self):
+        mails=[]; self.store.mail=lambda *m: mails.append(m)
+        t=at('2026-10-01T10:00:00')
+        self.store.start_extra(1,'video',120,t)
+        self.assertEqual(self.store.end_extra(1,'',t+1000),(409,{'error':'no_guardian'}))
+        self.store.set_guardian(1,'k@example.com',t)
+        token=re.search(r'approve#(\S+)',mails[-1][2]).group(1)
+        self.store.decide(token,'confirm',t+2000)
+        code,view=self.store.end_extra(1,'bitti',t+3000)
+        self.assertEqual((code,view['extraEndPending']),(200,True))
+        token=re.search(r'approve#(\S+)',mails[-1][2]).group(1)
+        self.assertEqual(self.store.request_info(token,t+4000)['decisions'],['end','deny'])
+        self.store.decide(token,'end',t+5000)
+        r=self.store.request(1,'chrome','video_enter','video-0000000000c1',t+6000)
+        self.assertEqual((r['mode'],r['extraVideoUntil']),('metered',0))
+
     def test_video_weekend_is_free_until_the_night(self):
         for moment, expected, mode in [('2026-10-02T12:00:00','allowed','metered'),('2026-10-03T02:00:00','exhausted','night'),('2026-10-03T04:59:59','exhausted','night'),('2026-10-03T05:00:00','allowed','free'),('2026-10-03T08:00:00','allowed','free'),('2026-10-03T12:00:00','allowed','free'),('2026-10-03T22:29:59','allowed','free'),('2026-10-03T22:30:00','exhausted','night'),('2026-10-04T02:00:00','exhausted','night'),('2026-10-04T12:00:00','allowed','free'),('2026-10-04T23:00:00','exhausted','night'),('2026-10-05T02:00:00','exhausted','night'),('2026-10-05T12:00:00','allowed','metered')]:
             r=self.store.request(1,'chrome','video_enter','video-0000000001',at(moment))

@@ -39,6 +39,8 @@ javac -d .build/tests src/com/zerohidz/whatsapppause/PickerPass.java tests/Picke
 java -cp .build/tests PickerPassTest
 javac -d .build/tests src/com/zerohidz/whatsapppause/LockRules.java tests/LockRulesTest.java
 java -cp .build/tests LockRulesTest
+javac -d .build/tests src/com/zerohidz/whatsapppause/ExtraLimit.java tests/ExtraLimitTest.java
+java -cp .build/tests com.zerohidz.whatsapppause.ExtraLimitTest
 python3 -m unittest discover -s server -v
 ```
 

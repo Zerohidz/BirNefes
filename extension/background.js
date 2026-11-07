@@ -57,6 +57,32 @@ async function account(message) {
   return {code: result.code, ttl: Number.isFinite(ttl) ? Math.min(600000, Math.max(0, ttl)) : 600000};
 }
 
+// A self-imposed limit: it can only be started or lengthened here; ending it early needs the guardian.
+const EXTRA_MINUTES = [30, 60, 120, 240, 'day'];
+async function extra(message) {
+  const start = message.operation === 'extra';
+  if (start ? !['video','all'].includes(message.scope) || !EXTRA_MINUTES.includes(message.minutes)
+      : message.reason !== undefined && (typeof message.reason !== 'string' || message.reason.length > 200)) return {error: 'invalid'};
+  const token = await deviceToken();
+  if (!token) return {error: 'unpaired'};
+  const body = start ? {scope: message.scope, minutes: message.minutes} : {reason: (message.reason || '').trim()};
+  const response = await fetch(`${BIRNEFES_CONFIG.url}/v1/${message.operation}`, {
+    method: 'POST',
+    headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+    cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
+  });
+  if (response.status === 401) return {error: 'unpaired'};
+  if (response.status === 409 || response.status === 429) {
+    const {error} = await response.json().catch(() => ({}));
+    if (typeof error === 'string') return {error};
+  }
+  if (!response.ok) throw new Error('server');
+  const result = await response.json();
+  if (!Number.isFinite(result.extraAllUntil) || !Number.isFinite(result.extraVideoUntil)) throw new Error('protocol');
+  return {extraAllUntil: result.extraAllUntil, extraVideoUntil: result.extraVideoUntil, extraEndPending: result.extraEndPending === true};
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const fromTarget = sender.tab && birNefesTarget(sender.url);
   const fromExtension = sender.url?.startsWith(chrome.runtime.getURL(''));
@@ -72,6 +98,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (['account','pair','pair-code','unpair'].includes(message?.operation)) {
     if (!fromExtension) return false;
     account(message).then(reply, () => reply({error: 'offline'}));
+    return true;
+  }
+  if (['extra','extra-end'].includes(message?.operation)) {
+    if (!fromExtension) return false;
+    extra(message).then(reply, () => reply({error: 'offline'}));
     return true;
   }
   if (!['enter','complete','status','emergency','video-enter','video-tick','video-stop','video-emergency','video-status'].includes(message?.operation)) return false;

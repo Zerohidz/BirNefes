@@ -24,6 +24,15 @@ public final class RemoteGate {
     /** Rights already used today and rights still open, from the last server answer; -1 if unknown. */
     public int used() { return used; }
     public int rights() { return rights; }
+    private long extraAllUntil, extraVideoUntil;
+    private boolean extraEndPending;
+    /** Extra limit ends from the last server answer, epoch ms on the server clock; 0 = none. */
+    public long extraAllUntil() { return extraAllUntil; }
+    public long extraVideoUntil() { return extraVideoUntil; }
+    public boolean extraEndPending() { return extraEndPending; }
+    /** Whether the "all" extra limit still holds, judged on the server clock. */
+    public boolean extraAllActive() { return extraAllUntil > System.currentTimeMillis() + serverOffset; }
+    private long serverOffset;
     public void emergency() {
         if (busy || state == DelayGate.State.ALLOWED || state == DelayGate.State.AWAY) return;
         attempt = UUID.randomUUID().toString();
@@ -63,6 +72,8 @@ public final class RemoteGate {
                 response = reply.body;
                 // Status also carries the guardian lock; keep it for the service and the main screen.
                 if (operation.equals("status")) Account.rememberGuard(context, response.optJSONObject("guard"));
+                // Every answer carries the extra limit; the main screen reads the saved copy.
+                Account.rememberExtra(context, response);
             } catch (Exception error) {
                 // Log only the exception class: no credentials, headers, or body.
                 android.util.Log.w("BirNefes", "Quota connection failed: " + error.getClass().getSimpleName());
@@ -86,8 +97,12 @@ public final class RemoteGate {
                     emergencyRemaining = result.optInt("emergencyRemaining", -1);
                     used = result.optInt("used", -1);
                     rights = result.optInt("remaining", -1);
+                    extraAllUntil = result.optLong("extraAllUntil");
+                    extraVideoUntil = result.optLong("extraVideoUntil");
+                    extraEndPending = result.optBoolean("extraEndPending");
                     String value = result.getString("state");
                     long serverNow = result.getLong("serverNow");
+                    serverOffset = serverNow - System.currentTimeMillis();
                     long roundTrip = elapsed - sent;
                     if (value.equals("allowed")) {
                         long newSession = result.getLong("session");
