@@ -2,7 +2,7 @@
   if (birNefesCategory(location.href) !== 'video') return;
   let generation = 0, attempt = '', busy = false, state = 'connecting', mode = '';
   let deadline = 0, wallDeadline = 0, pollAt = 0, emergencyRemaining = -1;
-  let confirming = false, lastMuted, limitUntil = 0;
+  let confirming = false, lastMuted, limitUntil = 0, budgetEnd = 0;
   const host = document.createElement('bir-nefes-blocker');
   host.style.cssText = 'all:initial;position:fixed;inset:0;z-index:2147483647;display:block;visibility:visible';
   const shadow = host.attachShadow({mode:'closed'});
@@ -63,6 +63,8 @@
       if(result.state === 'allowed') {
         const left = Math.max(0,result.expiresAt-result.serverNow-result.transitMs);
         deadline = performance.now()+left; wallDeadline=Date.now()+left;
+        // A metered grant is a short lease that keeps renewing; the clock shows the day's budget instead.
+        budgetEnd = mode === 'metered' ? performance.now() + Math.max(0, Number(result.videoRemainingMs) || 0) : deadline;
         render(left > 0 ? 'allowed' : 'connecting');
       } else render('exhausted');
     } catch { if(current === generation) { pollAt=performance.now()+5000; if(state !== 'allowed' || expired()) render('error'); } }
@@ -93,7 +95,7 @@
   setInterval(() => {
     if(state === 'allowed' && expired()) render('connecting');
     // Free hours need no clock; metered and urgent time does.
-    if(state === 'allowed' && mode !== 'free') timer.show(deadline - performance.now()); else timer.hide();
+    if(state === 'allowed' && mode !== 'free') timer.show(budgetEnd - performance.now()); else timer.hide();
     if(foreground() && !busy && performance.now() >= pollAt) { if(!attempt) enter(); else request('video-tick'); }
   },100);
   render('connecting'); if(foreground()) enter(); else render('paused');
