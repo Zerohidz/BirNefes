@@ -132,6 +132,17 @@ right, for at most five minutes. It never becomes a permanent exception.
 **Kontrol süresi** sets how long the blocker waits for the server's answer on a
 fresh entry: 0.5 to 3 seconds in half-second steps, 1 second by default.
 
+## YouTube app on the phone (1.8.1)
+
+The YouTube apps (`com.google.android.youtube` and the ReVanced/Vanced builds) follow the
+video rules above through the same `/v1/video-*` operations as Chrome: one shared
+ten-minute weekday budget, free hours, the closed night, the video extra limit, the
+urgent pass and an open study pass. A daily right does not open them and they cannot be
+made exceptions. Only the app in front is metered (five-second leases every two
+seconds; leaving sends a stop). The blocker takes transient audio focus so playback
+pauses under it. YouTube in a phone browser is not recognised: the service reads package
+names only, so a browser stays under the daily rights.
+
 ## Çalışma geçişi (study pass, 1.8.0)
 
 Weekdays 08:00–17:00, the Chrome popup can open video for 15, 30, 60 or 90 minutes

@@ -93,6 +93,10 @@ final class AppPolicy {
             return true;
         } catch (PackageManager.NameNotFoundException missing) { return false; }
     }
+    /** YouTube apps follow the shared video rules, not the daily rights, and cannot be made exceptions. */
+    static final Set<String> VIDEO = new HashSet<>(java.util.Arrays.asList(
+        "com.google.android.youtube", "app.revanced.android.youtube", "com.vanced.android.youtube"));
+    static boolean video(String pkg) { return VIDEO.contains(pkg); }
     boolean essential(String pkg) { return essential.contains(pkg); }
     boolean callScreen(String pkg) { return callScreens.contains(pkg); }
     /** A system file picker. Never an exception by itself: it counts only under a PickerPass. */

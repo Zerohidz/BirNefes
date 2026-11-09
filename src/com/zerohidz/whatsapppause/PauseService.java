@@ -22,6 +22,11 @@ public final class PauseService extends AccessibilityService {
     private AppPolicy policy;
     private long policyRefresh;
     private RemoteGate remote;
+    private VideoGate video;
+    /** True while the foreground app is a YouTube app run by the video rules. */
+    private boolean inVideo;
+    private String overlayMode = "";
+    private android.media.AudioFocusRequest silence;
     private SharedPreferences preferences;
     private String savedState = "";
     private DelayGate.State overlayState;
@@ -44,6 +49,8 @@ public final class PauseService extends AccessibilityService {
     private boolean foregroundRestricted = true;
     /** The app behind the lock screen, taken at screen off: lock-screen windows must not change it. */
     private boolean restrictedAtLock = true;
+    /** Whether the last app window was a YouTube app, and the same taken at screen off. */
+    private boolean lastVideo, videoAtLock;
     private WindowManager windows;
     private ScrollView overlay;
     private TextView countdown;
@@ -55,17 +62,18 @@ public final class PauseService extends AccessibilityService {
                 if (calls.screenOn(((KeyguardManager) getSystemService(KEYGUARD_SERVICE)).isKeyguardLocked(), call)) goHome();
                 return;
             }
-            if (Intent.ACTION_SCREEN_OFF.equals(action)) { calls.screenOff(currentState() != DelayGate.State.AWAY); restrictedAtLock = foregroundRestricted; }
+            if (Intent.ACTION_SCREEN_OFF.equals(action)) { calls.screenOff(currentState() != DelayGate.State.AWAY); restrictedAtLock = foregroundRestricted; videoAtLock = lastVideo; }
             leave();
             // A restricted app behind the lock screen is checked again: an open window keeps it,
             // otherwise the blocker returns. No new window event comes for it, so this is the entry.
-            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && restrictedAtLock) enterRestricted();
+            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && restrictedAtLock) { if (videoAtLock) enterVideo(); else enterRestricted(); }
         }
     };
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (currentState() == DelayGate.State.AWAY) return;
-            if (remote != null) { remote.tick(SystemClock.elapsedRealtime()); render(remote.state()); }
+            if (inVideo) { video.tick(SystemClock.elapsedRealtime()); render(video.state()); }
+            else if (remote != null) { remote.tick(SystemClock.elapsedRealtime()); render(remote.state()); }
             else render(gate.tick(System.currentTimeMillis(), SystemClock.elapsedRealtime(), java.time.ZoneId.systemDefault()));
             save();
             if (currentState() != DelayGate.State.AWAY) handler.postDelayed(this, 200);
@@ -77,7 +85,7 @@ public final class PauseService extends AccessibilityService {
         preferences = getSharedPreferences("usage", MODE_PRIVATE);
         gate = new DelayGate(preferences.getString("day", ""), preferences.getInt("used", 0),
             preferences.getBoolean("nightUsed", false), preferences.getLong("end", 0));
-        if (SyncConfig.ENABLED) remote = new RemoteGate(this);
+        if (SyncConfig.ENABLED) { remote = new RemoteGate(this); video = new VideoGate(this); }
         windows = (WindowManager) getSystemService(WINDOW_SERVICE);
         audio = (AudioManager) getSystemService(AUDIO_SERVICE);
         if (callWatcher == null) callWatcher = new CallWatcher(this, this::onCallState);
@@ -125,7 +133,7 @@ public final class PauseService extends AccessibilityService {
             // Any of our own Activities, not the overlay or a dialog window.
             if (policy.activityWindow(pkg, event.getClassName())) {
                 calls.window(false);
-                if (eventGate.allowedWindow(event.getEventTime())) { foregroundRestricted = false; leave(); }
+                if (eventGate.allowedWindow(event.getEventTime())) { foregroundRestricted = false; lastVideo = false; leave(); }
             }
             return;
         }
@@ -136,17 +144,25 @@ public final class PauseService extends AccessibilityService {
         // Guardian lock: the windows that would switch Bir Nefes off are covered.
         if ((LockRules.covers(pkg, event.getClassName()) || LockRules.coversTitle(pkg, event.getText()))
                 && Account.locked(this)) {
-            foregroundRestricted = true;
+            foregroundRestricted = true; lastVideo = false;
             if (eventGate.restrictedWindow(event.getEventTime(), true)) showLock();
             return;
         }
         if (SystemClock.elapsedRealtime() >= policyRefresh) { policy.refresh(); policyRefresh = SystemClock.elapsedRealtime() + 5000; }
-        if (policy.allowed(pkg) || (policy.picker(pkg) && PickerPass.active(SystemClock.elapsedRealtime()))) {
-            if (policy.callScreen(pkg)) calls.callScreenWindow(); else calls.window(false);
-            if (eventGate.allowedWindow(event.getEventTime())) { foregroundRestricted = false; leave(); }
+        // Before the exception list: a daily right or an exception never opens YouTube.
+        if (video != null && AppPolicy.video(pkg)) {
+            foregroundRestricted = true; lastVideo = true;
+            if (!eventGate.restrictedWindow(event.getEventTime(), policy.activityWindow(pkg, event.getClassName()))) return;
+            calls.window(true);
+            enterVideo();
             return;
         }
-        foregroundRestricted = true;
+        if (policy.allowed(pkg) || (policy.picker(pkg) && PickerPass.active(SystemClock.elapsedRealtime()))) {
+            if (policy.callScreen(pkg)) calls.callScreenWindow(); else calls.window(false);
+            if (eventGate.allowedWindow(event.getEventTime())) { foregroundRestricted = false; lastVideo = false; leave(); }
+            return;
+        }
+        foregroundRestricted = true; lastVideo = false;
         if (!eventGate.restrictedWindow(event.getEventTime(), policy.activityWindow(pkg, event.getClassName()))) return;
         calls.window(true);
         enterRestricted();
@@ -155,7 +171,25 @@ public final class PauseService extends AccessibilityService {
     private long checkDelay() {
         return CheckDelay.normalize(getSharedPreferences(CheckDelay.PREFERENCES, MODE_PRIVATE).getLong(CheckDelay.KEY, CheckDelay.DEFAULT_MS));
     }
+    private void enterVideo() {
+        if (!inVideo) {
+            if (remote != null) remote.leave();
+            inVideo = true;
+            connectingGraceUntil = SystemClock.elapsedRealtime() + checkDelay();
+        }
+        video.enter();
+        render(video.state());
+        handler.removeCallbacks(tick);
+        handler.post(tick);
+    }
+    private void stopVideo() {
+        if (!inVideo) return;
+        inVideo = false;
+        video.leave();
+        timer.show(DelayGate.State.EXPIRED, 0);
+    }
     private void enterRestricted() {
+        stopVideo();
         if (remote != null) {
             // Only a real AWAY entry starts the grace, so app switching cannot keep extending it.
             if (remote.state() == DelayGate.State.AWAY) connectingGraceUntil = SystemClock.elapsedRealtime() + checkDelay();
@@ -173,7 +207,7 @@ public final class PauseService extends AccessibilityService {
         view.setGravity(Gravity.CENTER); view.setPadding(16, 12, 16, 12);
         return view;
     }
-    private DelayGate.State currentState() { return remote == null ? gate.state() : remote.state(); }
+    private DelayGate.State currentState() { return inVideo ? video.state() : remote == null ? gate.state() : remote.state(); }
     private void save() {
         if (remote != null) return;
         String value = gate.day() + ":" + gate.used() + ":" + gate.nightUsed() + ":" + gate.end();
@@ -190,15 +224,20 @@ public final class PauseService extends AccessibilityService {
         performGlobalAction(GLOBAL_ACTION_HOME);
     }
     private void leave() {
+        stopVideo();
         if (remote != null) remote.leave();
         else if (gate != null) { gate.leave(); save(); }
         handler.removeCallbacks(tick);
         removeOverlay();
     }
     private void render(DelayGate.State state) {
-        timer.show(state, remote == null ? gate.elapsedEnd() : remote.deadline());
+        timer.show(state, inVideo ? video.clockEnd() : remote == null ? gate.elapsedEnd() : remote.deadline());
         if (state == DelayGate.State.ALLOWED || state == DelayGate.State.AWAY || overlaySuppressed()) { removeOverlay(); return; }
         if (state == DelayGate.State.CONNECTING && overlay == null && SystemClock.elapsedRealtime() < connectingGraceUntil) return;
+        if (inVideo) {
+            if (overlay == null || overlayState != state || !overlayMode.equals(video.mode())) showVideoOverlay(state);
+            return;
+        }
         if (overlay == null || overlayState != state) showOverlay(state);
         if (state == DelayGate.State.WAITING && countdown != null)
             countdown.setText(String.valueOf(((remote == null ? gate.remaining(SystemClock.elapsedRealtime()) : remote.remaining(SystemClock.elapsedRealtime())) + 999) / 1000));
@@ -292,6 +331,34 @@ public final class PauseService extends AccessibilityService {
         if (!connecting) addUrgent(content);
         attachOverlay();
     }
+    /** The YouTube blocker: the shared video budget, not the daily rights. */
+    private void showVideoOverlay(DelayGate.State state) {
+        LinearLayout content = openOverlay(state);
+        overlayMode = video.mode();
+        String mode = video.mode();
+        boolean connecting = state == DelayGate.State.CONNECTING, offline = state == DelayGate.State.ERROR;
+        boolean limited = mode.equals("limited"), night = mode.equals("night");
+        String until = limited && video.limitUntil() > 0 ? ExtraLimit.until(video.limitUntil(), System.currentTimeMillis()) : "";
+        content.addView(label(connecting ? "Video süren kontrol ediliyor…" : offline ? "Sunucuya ulaşılamadı."
+            : limited ? "Ek kısıt açık." : night ? "Şimdi ekranı bırakma zamanı." : "10 dakikalık video hakkın bitti.", 32));
+        content.addView(label(connecting ? "YouTube günlük haklardan değil, bilgisayarla ortak video süresinden açılır."
+            : offline ? "Bağlantı gelince kalan süren kontrol edilir."
+            : limited ? (until.isEmpty() ? "Kendi koyduğun kısıt sürüyor." : until.substring(0, 1).toUpperCase(java.util.Locale.forLanguageTag("tr")) + until.substring(1) + " kendi koyduğun kısıt sürüyor.")
+            : night ? "YouTube 05.00’te açılacak." : "17.00’de serbest kullanım başlayacak. İş ya da ders için bilgisayardan çalışma geçişi açabilirsin.", 18));
+        Button home = Ui.primary(this, "Ana sayfaya dön");
+        home.setOnClickListener(v -> goHome());
+        content.addView(home);
+        if (!connecting && video.emergencyRemaining() != 0) {
+            Button urgent = Ui.secondary(this, "Acele geçişi · 20 dakika" + (video.emergencyRemaining() > 0 ? " · " + video.emergencyRemaining() + "/4 kaldı" : ""));
+            urgent.setOnClickListener(v -> {
+                urgent.setText("Aylık 1 hakkı kullan ve aç");
+                urgent.setOnClickListener(confirm -> { video.emergency(); render(video.state()); });
+            });
+            content.addView(urgent);
+        }
+        content.addView(label("Hafta içi 05.00–08.00 ve 17.00–22.30 serbest, 08.00–17.00 bilgisayarla ortak toplam 10 dakika. Hafta sonu 05.00–22.30 serbest. 22.30–05.00 kapalı. Mola YouTube’u açmaz.", 14));
+        attachOverlay();
+    }
     private void addUrgent(LinearLayout content) {
         if (remote != null && remote.emergencyRemaining() != 0) {
             Button urgent = Ui.secondary(this, "Acele geçişi · 20 dakika" + (remote.emergencyRemaining() >= 0 ? " · " + remote.emergencyRemaining() + "/4 kaldı" : ""));
@@ -317,14 +384,22 @@ public final class PauseService extends AccessibilityService {
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.OPAQUE);
         params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         if (Build.VERSION.SDK_INT >= 30) params.setFitInsetsTypes(0);
-        try { windows.addView(overlay, params); overlay.requestFocus(); }
+        try { windows.addView(overlay, params); overlay.requestFocus(); if (inVideo) hush(); }
         catch (RuntimeException error) {
             android.util.Log.e("BirNefes", "Blocking overlay could not be displayed", error);
             overlay = null;
             goHome();
         }
     }
+    /** Players pause on a transient focus loss, so nothing keeps playing under the blocker. */
+    private void hush() {
+        if (audio == null || silence != null) return;
+        silence = new android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).build();
+        audio.requestAudioFocus(silence);
+    }
     private void removeOverlay() {
+        if (silence != null && audio != null) { audio.abandonAudioFocusRequest(silence); silence = null; }
+        overlayMode = "";
         if (overlay != null) {
             try { windows.removeView(overlay); } catch (IllegalArgumentException ignored) { /* Already detached by system. */ }
             overlay = null;
@@ -336,7 +411,7 @@ public final class PauseService extends AccessibilityService {
         if (callWatcher != null) callWatcher.stop();
         handler.removeCallbacks(afterCall);
         handler.removeCallbacks(afterAnswer);
-        leave(); if (remote != null) remote.close(); instance = null;
+        leave(); if (remote != null) remote.close(); if (video != null) video.close(); instance = null;
         try { unregisterReceiver(screenOff); } catch (IllegalArgumentException ignored) { /* Service was not connected. */ }
         super.onDestroy();
     }

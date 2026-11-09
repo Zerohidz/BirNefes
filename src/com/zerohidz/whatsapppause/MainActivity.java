@@ -287,7 +287,7 @@ public final class MainActivity extends Activity {
     private void chooseExtraScope() {
         String[] scopes = {"all", "video"};
         Ui.show(new AlertDialog.Builder(this).setTitle("Ne kısıtlansın?")
-            .setItems(new String[] {"Her şey (telefon ve bilgisayar)", "Video ve film siteleri (bilgisayar)"},
+            .setItems(new String[] {"Her şey (telefon ve bilgisayar)", "Video: YouTube uygulaması ve bilgisayardaki video siteleri"},
                 (dialog, which) -> chooseExtraDuration(scopes[which]))
             .setNegativeButton("Vazgeç", null));
     }
