@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.os.SystemClock;
+import android.widget.RemoteViews;
 
 /** An ongoing notification that counts down the open usage window; the system ticks it. */
 final class UsageTimer {
@@ -32,11 +33,19 @@ final class UsageTimer {
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Kalan kullanım süresi", NotificationManager.IMPORTANCE_LOW));
         PendingIntent open = PendingIntent.getActivity(context, 0,
             new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
+        // A custom view so the clock is large; the header's own chronometer is tiny.
+        String pkg = context.getPackageName();
+        RemoteViews clock = new RemoteViews(pkg, context.getResources().getIdentifier("usage_timer", "layout", pkg));
+        int clockId = context.getResources().getIdentifier("usage_clock", "id", pkg);
+        clock.setChronometer(clockId, elapsedEnd, null, true);
+        clock.setChronometerCountDown(clockId, true);
         manager.notify(ID, new Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("Kullanım süren işliyor")
             .setContentText("Süre bitince kısıtlı uygulamalar kapanır.")
-            .setWhen(end).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
+            .setStyle(new Notification.DecoratedCustomViewStyle())
+            .setCustomContentView(clock).setCustomBigContentView(clock)
+            .setShowWhen(false)
             .setOngoing(true).setOnlyAlertOnce(true).setTimeoutAfter(left)
             .setCategory(Notification.CATEGORY_STOPWATCH).setContentIntent(open)
             .build());

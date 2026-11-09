@@ -15,6 +15,7 @@
     #break{font-size:28px;font-weight:700;color:#50b582;margin:24px 0 4px}#break span{display:block;font-size:16px;font-weight:400;color:#bacac4;margin-top:6px}small{display:block;color:#93aaa0;font-size:14px;margin-top:24px;line-height:1.6}[hidden]{display:none!important}
     </style><main role="dialog" aria-modal="true" aria-labelledby="title"><section><h1 id="title"></h1><p id="detail"></p><p id="break" hidden></p><output id="count" aria-hidden="true" hidden></output><p id="note"></p><button id="home">Ana sayfaya dön</button><button id="urgent" hidden></button><p id="urgent-note" hidden></p><small>Bir Nefes · Telefon + Chrome<br>Haklar 03.00’te yenilenir · İstanbul saati</small></section></main>`;
   const $ = id => shadow.getElementById(id);
+  const timer = birNefesTimer();
   function attach() {
     if (!host.isConnected && document.documentElement) document.documentElement.append(host);
   }
@@ -102,6 +103,7 @@
   setInterval(() => {
   if (birNefesCategory(location.href) !== 'messaging') return;
     if (state === 'allowed' && expired()) render('expired');
+    if (state === 'allowed') timer.show(deadline - performance.now()); else timer.hide();
     if (document.visibilityState !== 'visible') return;
     if (state === 'waiting') {
       $('count').textContent = String(Math.max(0, Math.ceil((ready-performance.now())/1000)));

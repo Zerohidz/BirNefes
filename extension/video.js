@@ -11,6 +11,7 @@
     section{max-width:560px;text-align:center}h1{font-size:clamp(28px,4vw,40px);line-height:1.2;margin:0 0 20px}p{color:#bacac4}button{font:600 16px system-ui;background:#50b582;color:#0a141b;border:0;border-radius:10px;padding:16px 24px;margin:12px 4px;min-height:52px;cursor:pointer}button:focus-visible{outline:3px solid white;outline-offset:4px}small{display:block;color:#93aaa0;font-size:14px}[hidden]{display:none!important}
     </style><main role="dialog" aria-modal="true" aria-labelledby="title"><section><h1 id="title"></h1><p id="detail"></p><button id="home">Ana sayfaya dön</button><button id="urgent" hidden></button><p id="note"></p><small>Video / film · İstanbul saati<br>Hafta içi 05.00–08.00 ve 17.00–22.30 serbest<br>Hafta içi 08.00–17.00 toplam 20 dakika<br>Cumartesi ve pazar 05.00–22.30 serbest<br>22.30–05.00 kapalı</small></section></main>`;
   const $ = id => shadow.getElementById(id);
+  const timer = birNefesTimer();
   const foreground = () => document.visibilityState === 'visible' && document.hasFocus();
   function attach() { if (!host.isConnected && document.documentElement) document.documentElement.append(host); }
   function stopMedia() {
@@ -91,6 +92,8 @@
   observer.observe(document.documentElement, {childList:true});
   setInterval(() => {
     if(state === 'allowed' && expired()) render('connecting');
+    // Free hours need no clock; metered and urgent time does.
+    if(state === 'allowed' && mode !== 'free') timer.show(deadline - performance.now()); else timer.hide();
     if(foreground() && !busy && performance.now() >= pollAt) { if(!attempt) enter(); else request('video-tick'); }
   },100);
   render('connecting'); if(foreground()) enter(); else render('paused');
