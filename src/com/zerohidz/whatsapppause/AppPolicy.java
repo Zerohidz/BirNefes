@@ -22,6 +22,7 @@ final class AppPolicy {
     private final Set<String> essential = new HashSet<>();
     private final Set<String> callScreens = new HashSet<>();
     private final Set<String> pickers = new HashSet<>();
+    private final Set<String> browsers = new HashSet<>();
     AppPolicy(Context context) {
         this.context = context;
         prefs = context.getSharedPreferences("exceptions", Context.MODE_PRIVATE);
@@ -40,6 +41,10 @@ final class AppPolicy {
         }
     }
     void refresh() {
+        browsers.clear();
+        collect(browsers, new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://example.com/")));
+        browsers.remove(context.getPackageName());
+        browsers.removeAll(VIDEO);
         essential.clear();
         callScreens.clear();
         callScreens.add("com.samsung.android.incallui");
@@ -95,8 +100,11 @@ final class AppPolicy {
     }
     /** YouTube apps follow the shared video rules, not the daily rights, and cannot be made exceptions. */
     static final Set<String> VIDEO = new HashSet<>(java.util.Arrays.asList(
-        "com.google.android.youtube", "app.revanced.android.youtube", "com.vanced.android.youtube"));
+        "com.google.android.youtube", "app.revanced.android.youtube", "com.vanced.android.youtube",
+        "com.github.libretube", "com.github.libretube.debug"));
     static boolean video(String pkg) { return VIDEO.contains(pkg); }
+    /** An app that opens web links: its address bar is checked for video sites. */
+    boolean browser(String pkg) { return browsers.contains(pkg); }
     boolean essential(String pkg) { return essential.contains(pkg); }
     boolean callScreen(String pkg) { return callScreens.contains(pkg); }
     /** A system file picker. Never an exception by itself: it counts only under a PickerPass. */

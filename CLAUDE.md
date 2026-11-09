@@ -39,6 +39,8 @@ javac -d .build/tests src/com/zerohidz/whatsapppause/PickerPass.java tests/Picke
 java -cp .build/tests PickerPassTest
 javac -d .build/tests src/com/zerohidz/whatsapppause/LockRules.java tests/LockRulesTest.java
 java -cp .build/tests LockRulesTest
+javac -d .build/tests src/com/zerohidz/whatsapppause/BrowserUrl.java tests/BrowserUrlProbe.java tests/BrowserUrlTest.java
+java -cp .build/tests BrowserUrlTest
 javac -d .build/tests src/com/zerohidz/whatsapppause/ExtraLimit.java tests/ExtraLimitTest.java
 java -cp .build/tests com.zerohidz.whatsapppause.ExtraLimitTest
 python3 -m unittest discover -s server -v
@@ -85,7 +87,7 @@ Production operations are in the README's "Server operations" section. `server/d
 
 ## Constraints
 
-- **Privacy is a product guarantee.** The accessibility service reads package identities only: `canRetrieveWindowContent` and `canPerformGestures` are false, and nothing reads event text, nodes, or screenshots. Call handling reads the call state only, never the number. One narrow exception: while the guardian lock holds, `LockRules` compares Settings window-state event titles (Samsung opens every Settings page as `SubSettings`); titles are never stored or logged. Do not add these to solve a detection problem.
+- **Privacy is a product guarantee.** The accessibility service reads package identities, with one window-content exception since 1.8.2 (the user's decision): in the browser in front it reads the address-bar node (`BrowserUrl` picks it by view id or editability and an address-like text) to see whether it shows YouTube. That text is matched and dropped, never stored, sent or logged; the debug log has view ids only. `canRetrieveWindowContent` is true for that reason alone; `canPerformGestures` is false, and nothing else reads event text, nodes, or screenshots. Call handling reads the call state only, never the number. One narrow exception: while the guardian lock holds, `LockRules` compares Settings window-state event titles (Samsung opens every Settings page as `SubSettings`); titles are never stored or logged. Do not add these to solve a detection problem.
 - **Credentials:** No APK or extension package carries a token: devices register or pair and keep the token in app storage (Android `account` prefs, Chrome `storage.local`), which survives updates. Only a `BIRNEFES_TEST_HTTP=1` build embeds the config's token, which it saves on first use. `SyncConfig.java` is generated into `.build/generated/` by `scripts/generate-sync-config.py`. `.build/` and `artifacts/` are gitignored and may hold real credentials; the server stores hashes only. With no `.build/sync-config.json`, `build.sh` still produces a synced APK against the default URL; only `BIRNEFES_LOCAL_ONLY=1` or an explicit `BIRNEFES_SYNC_CONFIG` pointing at a missing file produce a local-only APK.
 - **Keep `.build/debug.jks`.** It is the signing identity that allows in-place updates.
 - **Releasing an APK** means uploading it to `/var/www/birnefes`, writing `surum.json` with the new `versionCode`, and repointing the `BirNefes-son.apk` symlink; installed apps announce the update from that file.

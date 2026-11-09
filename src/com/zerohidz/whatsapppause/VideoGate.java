@@ -24,6 +24,9 @@ public final class VideoGate {
     private long deadline, budgetEnd, pollAt, generation, limitUntil, serverOffset;
     private int emergencyRemaining = -1;
     private boolean busy;
+    /** YouTube in a browser: it only reads the state, never meters, and stays shut in metered hours. */
+    private boolean browser;
+    public boolean browser() { return browser; }
 
     public DelayGate.State state() { return state; }
     /** free, metered, emergency, work, night, exhausted or limited; empty before the first answer. */
@@ -34,18 +37,19 @@ public final class VideoGate {
     /** Elapsed-realtime end for the countdown notification; 0 in free hours, which need none. */
     public long clockEnd() { return state != DelayGate.State.ALLOWED || mode.equals("free") ? 0 : budgetEnd; }
 
-    public void enter() {
+    public void enter(boolean inBrowser) {
         if (state != DelayGate.State.AWAY) return;
+        browser = inBrowser;
         generation++;
         attempt = UUID.randomUUID().toString();
         state = DelayGate.State.CONNECTING;
-        request("video-enter");
+        request(browser ? "video-status" : "video-enter");
     }
     public void leave() {
         if (state == DelayGate.State.AWAY) return;
         String previous = attempt;
         generation++; busy = false; attempt = null; state = DelayGate.State.AWAY;
-        if (previous != null) network.execute(() -> {
+        if (previous != null && !browser) network.execute(() -> {
             try { Account.authorized(context, "POST", "/v1/video-stop", new JSONObject().put("attempt", previous)); }
             catch (Exception error) { android.util.Log.w("BirNefes", "Video stop failed: " + error.getClass().getSimpleName()); }
         });
@@ -59,7 +63,7 @@ public final class VideoGate {
     public void tick(long elapsed) {
         if (state == DelayGate.State.AWAY) return;
         if (state == DelayGate.State.ALLOWED && elapsed >= deadline) state = DelayGate.State.CONNECTING;
-        if (!busy && elapsed >= pollAt) request("video-tick");
+        if (!busy && elapsed >= pollAt) request(browser ? "video-status" : "video-tick");
     }
 
     private void request(String operation) {
@@ -71,7 +75,9 @@ public final class VideoGate {
             JSONObject response = null;
             for (int tries = 0; tries < 2 && response == null; tries++) {
                 try {
-                    Account.Response reply = Account.authorized(context, "POST", "/v1/" + operation, new JSONObject().put("attempt", requestAttempt));
+                    boolean read = operation.equals("video-status");
+                    Account.Response reply = Account.authorized(context, read ? "GET" : "POST", "/v1/" + operation,
+                        read ? null : new JSONObject().put("attempt", requestAttempt));
                     if (reply.status != 200) throw new java.io.IOException("HTTP " + reply.status);
                     response = reply.body;
                     Account.rememberExtra(context, response);
@@ -96,7 +102,7 @@ public final class VideoGate {
                     long serverNow = result.getLong("serverNow");
                     serverOffset = serverNow - System.currentTimeMillis();
                     limitUntil = Math.max(result.optLong("extraAllUntil"), result.optLong("extraVideoUntil"));
-                    if (result.getString("state").equals("allowed")) {
+                    if (result.getString("state").equals("allowed") && !(browser && mode.equals("metered"))) {
                         long left = Math.max(0, result.getLong("expiresAt") - serverNow - (elapsed - sent));
                         deadline = elapsed + left;
                         // The lease is short; the clock shows what is left of the day's budget.

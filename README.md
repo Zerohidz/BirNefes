@@ -140,8 +140,17 @@ ten-minute weekday budget, free hours, the closed night, the video extra limit, 
 urgent pass and an open study pass. A daily right does not open them and they cannot be
 made exceptions. Only the app in front is metered (five-second leases every two
 seconds; leaving sends a stop). The blocker takes transient audio focus so playback
-pauses under it. YouTube in a phone browser is not recognised: the service reads package
-names only, so a browser stays under the daily rights.
+pauses under it. LibreTube counts as a YouTube app.
+
+**Browsers (1.8.2).** Any app that opens `https` links is a browser. While one is in front,
+the service reads its address bar (the node whose view id says url/location/address/
+omnibox/toolbar, or an editable one, holding an address-like text) and only checks
+whether it is youtube.com, youtu.be or youtube-nocookie.com; the text is never stored,
+sent or logged. YouTube in a browser reads the video state without metering: open in
+free hours and during an urgent or study pass, shut on weekdays 08:00–17:00 (the ten
+minutes are for the app and the computer) and at night. Other sites stay under the
+daily rights. `adb logcat -s BirNefesUrl` shows which view id was taken as the bar, or
+the ids seen when none was found, for adding a new browser.
 
 ## Çalışma geçişi (study pass, 1.8.0)
 

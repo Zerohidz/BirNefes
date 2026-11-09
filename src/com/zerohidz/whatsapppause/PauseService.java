@@ -9,6 +9,7 @@ import android.media.AudioManager;
 import android.os.*;
 import android.view.*;
 import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 
@@ -51,6 +52,10 @@ public final class PauseService extends AccessibilityService {
     private boolean restrictedAtLock = true;
     /** Whether the last app window was a YouTube app, and the same taken at screen off. */
     private boolean lastVideo, videoAtLock;
+    /** The app window in front, for matching content events to the browser being shown. */
+    private String foregroundPkg = "";
+    private long urlCheckAt;
+    private final Runnable urlCheck = this::checkBrowserUrl;
     private WindowManager windows;
     private ScrollView overlay;
     private TextView countdown;
@@ -66,7 +71,7 @@ public final class PauseService extends AccessibilityService {
             leave();
             // A restricted app behind the lock screen is checked again: an open window keeps it,
             // otherwise the blocker returns. No new window event comes for it, so this is the entry.
-            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && restrictedAtLock) { if (videoAtLock) enterVideo(); else enterRestricted(); }
+            if (Intent.ACTION_USER_PRESENT.equals(action) && !call && restrictedAtLock) { if (videoAtLock) enterVideo(false); else { enterRestricted(); scheduleUrlCheck(300); } }
         }
     };
     private final Runnable tick = new Runnable() {
@@ -122,8 +127,13 @@ public final class PauseService extends AccessibilityService {
         return calls.suppressOverlay((callWatcher == null || !callWatcher.active()) && audioCall());
     }
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (gate == null) return;
-        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || event.getPackageName() == null) return;
+        if (gate == null || event.getPackageName() == null) return;
+        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            // Only the browser in front, to follow its address bar; other apps' content is never read.
+            if (video != null && event.getPackageName().toString().equals(foregroundPkg) && policy.browser(foregroundPkg)) scheduleUrlCheck(600);
+            return;
+        }
+        if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return;
         // Pane appearance/disappearance is not an app foreground transition.
         if (event.getContentChangeTypes() != 0) return;
         String pkg = event.getPackageName().toString();
@@ -150,11 +160,13 @@ public final class PauseService extends AccessibilityService {
         }
         if (SystemClock.elapsedRealtime() >= policyRefresh) { policy.refresh(); policyRefresh = SystemClock.elapsedRealtime() + 5000; }
         // Before the exception list: a daily right or an exception never opens YouTube.
+        String previousPkg = foregroundPkg;
+        foregroundPkg = pkg;
         if (video != null && AppPolicy.video(pkg)) {
             foregroundRestricted = true; lastVideo = true;
             if (!eventGate.restrictedWindow(event.getEventTime(), policy.activityWindow(pkg, event.getClassName()))) return;
             calls.window(true);
-            enterVideo();
+            enterVideo(false);
             return;
         }
         if (policy.allowed(pkg) || (policy.picker(pkg) && PickerPass.active(SystemClock.elapsedRealtime()))) {
@@ -165,19 +177,60 @@ public final class PauseService extends AccessibilityService {
         foregroundRestricted = true; lastVideo = false;
         if (!eventGate.restrictedWindow(event.getEventTime(), policy.activityWindow(pkg, event.getClassName()))) return;
         calls.window(true);
+        // A new window inside the same browser keeps its YouTube state until the bar says otherwise.
+        if (inVideo && video.browser() && pkg.equals(previousPkg)) { scheduleUrlCheck(300); return; }
         enterRestricted();
+        if (video != null && policy.browser(pkg)) scheduleUrlCheck(300);
+    }
+    private void scheduleUrlCheck(long delay) {
+        long at = SystemClock.uptimeMillis() + delay;
+        // Bursts of content events collapse into one read.
+        if (handler.hasCallbacks(urlCheck) && urlCheckAt <= at) return;
+        handler.removeCallbacks(urlCheck);
+        urlCheckAt = at;
+        handler.postAtTime(urlCheck, at);
+    }
+    /**
+     * Reads the address bar of the browser in front: YouTube there follows the video rules.
+     * Only nodes that look like the bar are matched; their text is never kept or logged.
+     */
+    private void checkBrowserUrl() {
+        if (video == null || !policy.browser(foregroundPkg)) return;
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null || root.getPackageName() == null || !foregroundPkg.equals(root.getPackageName().toString())) return;
+        java.util.ArrayDeque<AccessibilityNodeInfo> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        Boolean onVideo = null;
+        String barId = null;
+        java.util.List<String> seen = new java.util.ArrayList<>();
+        for (int visited = 0; !queue.isEmpty() && visited < 600 && onVideo == null; visited++) {
+            AccessibilityNodeInfo node = queue.poll();
+            String id = node.getViewIdResourceName();
+            if (BrowserUrl.barNode(id, node.isEditable()) && BrowserUrl.address(node.getText())) {
+                onVideo = BrowserUrl.video(node.getText());
+                barId = id;
+            } else if (id != null && seen.size() < 25) seen.add(id + (node.isEditable() ? "*" : ""));
+            for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo child = node.getChild(i); if (child != null) queue.add(child); }
+        }
+        // Ids only, for finding a new browser's bar: never the text.
+        if (onVideo == null) android.util.Log.d("BirNefesUrl", foregroundPkg + " no bar; ids " + seen);
+        else android.util.Log.d("BirNefesUrl", foregroundPkg + " bar " + barId + " video " + onVideo);
+        if (onVideo == null) return;
+        if (onVideo && !inVideo) enterVideo(true);
+        else if (!onVideo && inVideo && video.browser()) enterRestricted();
     }
     /** A fresh entry is checked quietly; the blocker waits this long for the server's answer. */
     private long checkDelay() {
         return CheckDelay.normalize(getSharedPreferences(CheckDelay.PREFERENCES, MODE_PRIVATE).getLong(CheckDelay.KEY, CheckDelay.DEFAULT_MS));
     }
-    private void enterVideo() {
+    private void enterVideo(boolean browser) {
+        if (inVideo && video.browser() != browser) stopVideo();
         if (!inVideo) {
             if (remote != null) remote.leave();
             inVideo = true;
             connectingGraceUntil = SystemClock.elapsedRealtime() + checkDelay();
         }
-        video.enter();
+        video.enter(browser);
         render(video.state());
         handler.removeCallbacks(tick);
         handler.post(tick);
@@ -338,13 +391,15 @@ public final class PauseService extends AccessibilityService {
         String mode = video.mode();
         boolean connecting = state == DelayGate.State.CONNECTING, offline = state == DelayGate.State.ERROR;
         boolean limited = mode.equals("limited"), night = mode.equals("night");
+        boolean shut = video.browser() && mode.equals("metered");
         String until = limited && video.limitUntil() > 0 ? ExtraLimit.until(video.limitUntil(), System.currentTimeMillis()) : "";
         content.addView(label(connecting ? "Video süren kontrol ediliyor…" : offline ? "Sunucuya ulaşılamadı."
-            : limited ? "Ek kısıt açık." : night ? "Şimdi ekranı bırakma zamanı." : "10 dakikalık video hakkın bitti.", 32));
+            : limited ? "Ek kısıt açık." : night ? "Şimdi ekranı bırakma zamanı." : shut ? "Gündüz tarayıcıda YouTube kapalı." : "10 dakikalık video hakkın bitti.", 32));
         content.addView(label(connecting ? "YouTube günlük haklardan değil, bilgisayarla ortak video süresinden açılır."
             : offline ? "Bağlantı gelince kalan süren kontrol edilir."
             : limited ? (until.isEmpty() ? "Kendi koyduğun kısıt sürüyor." : until.substring(0, 1).toUpperCase(java.util.Locale.forLanguageTag("tr")) + until.substring(1) + " kendi koyduğun kısıt sürüyor.")
-            : night ? "YouTube 05.00’te açılacak." : "17.00’de serbest kullanım başlayacak. İş ya da ders için bilgisayardan çalışma geçişi açabilirsin.", 18));
+            : night ? "YouTube 05.00’te açılacak."
+            : shut ? "Hafta içi 08.00–17.00 YouTube yalnız uygulamadan ya da bilgisayardan, ortak 10 dakikayla açılır." : "17.00’de serbest kullanım başlayacak. İş ya da ders için bilgisayardan çalışma geçişi açabilirsin.", 18));
         Button home = Ui.primary(this, "Ana sayfaya dön");
         home.setOnClickListener(v -> goHome());
         content.addView(home);
