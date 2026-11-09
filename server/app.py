@@ -23,8 +23,13 @@ WAIT = 30_000
 DAY_WINDOW = 1_200_000
 NIGHT_WINDOW = 300_000
 EMERGENCY_WINDOW = 1_200_000
-VIDEO_BUDGET = 1_200_000
+VIDEO_BUDGET = 600_000
 VIDEO_LEASE = 5_000
+# A study pass opens metered video on the computer only, after a typed oath; the guardian gets a daily summary.
+WORK_MINUTES = (15, 30, 60, 90)
+WORK_DAILY = 10_800_000
+WORK_OATH = 'yemin ederim'
+WORK_SUBJECT = 'Bir Nefes: bugünkü çalışma geçişleri'
 
 def bounds(now):
     local = datetime.fromtimestamp(now / 1000, ZONE)
@@ -77,6 +82,10 @@ SCHEMA = [
     """CREATE TABLE IF NOT EXISTS guard_requests (
         account_id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('verify','change','release','extra')),
         token_hash TEXT NOT NULL UNIQUE, email TEXT, reason TEXT NOT NULL, expires INTEGER NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS work_passes (
+        id INTEGER PRIMARY KEY, account_id INTEGER NOT NULL, device TEXT NOT NULL, day TEXT NOT NULL,
+        started INTEGER NOT NULL, end INTEGER NOT NULL, purpose TEXT NOT NULL, oath TEXT NOT NULL,
+        reported INTEGER NOT NULL DEFAULT 0)""",
 ]
 ACCOUNT_COLUMNS = {
     'guardian_email': 'TEXT',
@@ -118,6 +127,23 @@ def mail_body(kind, email, reason, token):
         lines.append('Gerekçe: ' + reason)
     lines += ['', 'Karar vermek için bağlantıyı aç (24 saat geçerli, tek kullanımlık):',
               f'{PUBLIC_URL}/approve#{token}', '', 'Bu isteği beklemiyorsan görmezden gelebilirsin.']
+    return '\n'.join(lines) + '\n'
+
+def clock(ms):
+    return datetime.fromtimestamp(ms / 1000, ZONE).strftime('%H.%M')
+
+def has_oath(text):
+    # Turkish casing: İ→i and I→ı before lowering, so "YEMİN EDERİM" counts.
+    folded = ' '.join(text.replace('İ', 'i').replace('I', 'ı').lower().split())
+    return WORK_OATH in folded
+
+def work_body(day, rows):
+    total = sum(r['end'] - r['started'] for r in rows) // 60_000
+    lines = ['Merhaba,', '', f'Bir Nefes kullanıcısı {day} günü bilgisayarda {len(rows)} çalışma geçişi açtı, toplam {total} dakika.', '']
+    for r in rows:
+        lines.append(f"{clock(r['started'])}–{clock(r['end'])} ({(r['end'] - r['started']) // 60_000} dk): {r['purpose']}")
+        lines.append(f"  Yemini: {r['oath']}")
+    lines += ['', 'Bu e-posta bilgi içindir, bir şey yapman gerekmiyor.']
     return '\n'.join(lines) + '\n'
 
 def digest(secret):
@@ -334,6 +360,7 @@ class Store:
             emergency = db.execute('SELECT * FROM emergency WHERE account_id=?', (account,)).fetchone()
             emergency_left = 4 - emergency['used'] if emergency['month'] == day[:7] else 4
             closed = db.execute('SELECT 1 FROM video_closed WHERE account_id=? AND device=? AND attempt=?', (account, device, attempt)).fetchone()
+            work = self.work_view(db, account, now)
             if urgent:
                 db.execute('DELETE FROM video_clients WHERE account_id=?', (account,))
                 state, mode, end = 'allowed', 'emergency', grant['end']
@@ -341,6 +368,8 @@ class Store:
                 state, mode, end = 'exhausted', 'limited', now
             elif five <= now < eight or seventeen <= now < cutoff or (weekend and five <= now < cutoff):
                 state, mode, end = 'allowed', 'free', eight if now < eight and not weekend else cutoff
+            elif work['workUntil']:
+                state, mode, end = 'allowed', 'work', work['workUntil']
             elif eight <= now < seventeen and q['spent'] < VIDEO_BUDGET:
                 state, mode = 'allowed', 'metered'
                 end = min(now + VIDEO_LEASE, now + VIDEO_BUDGET - q['spent'], seventeen)
@@ -358,8 +387,73 @@ class Store:
                         session=grant['session'] if urgent else 0, sessionKind=mode,
                         videoRemainingMs=VIDEO_BUDGET-q['spent'], emergencyRemaining=emergency_left,
                         budgetDay=day, renewalAt=renewal, readyAt=0, remaining=0,
-                        **extra,
+                        **extra, **work,
                         nextChangeAt=(limit_until if not urgent else 0) or (five if now < five else cutoff if weekend and now < cutoff else eight if now < eight else seventeen if now < seventeen else cutoff if now < cutoff else renewal+2*3900_000))
+
+    def work_view(self, db, account, now):
+        day = bounds(now)[0]
+        rows = db.execute('SELECT started, end, purpose FROM work_passes WHERE account_id=? AND day=? ORDER BY started',
+                          (account, day)).fetchall()
+        active = next((r['end'] for r in rows if r['started'] <= now < r['end']), 0)
+        used = sum(r['end'] - r['started'] for r in rows)
+        return dict(workUntil=active, workLeftMs=max(0, WORK_DAILY - used),
+                    workToday=[dict(started=r['started'], end=r['end'], purpose=r['purpose']) for r in rows])
+
+    def start_work(self, account, device, minutes, purpose, oath, now=None):
+        now = int(time.time() * 1000) if now is None else now
+        if not has_oath(oath):
+            return 400, {'error': 'no_oath'}
+        day, cutoff, _ = bounds(now)
+        date = datetime.fromisoformat(day).date()
+        stamp = lambda hour: int(datetime.combine(date, daytime(hour), ZONE).timestamp()*1000)
+        # Only the metered weekday hours need it; free hours are open and the night stays closed.
+        if date.weekday() >= 5 or not stamp(8) <= now < stamp(17):
+            return 409, {'error': 'not_metered'}
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            kind = db.execute('SELECT kind FROM devices WHERE id=? AND account_id=?', (device, account)).fetchone()
+            if not kind or kind['kind'] != 'chrome':
+                return 403, {'error': 'chrome_only'}
+            extra = self.extra_view(db, account, now)
+            if extra['extraVideoUntil'] or extra['extraAllUntil']:
+                return 409, {'error': 'limited'}
+            view = self.work_view(db, account, now)
+            if view['workUntil']:
+                return 409, {'error': 'active'}
+            length = min(minutes * 60_000, view['workLeftMs'])
+            if length < 60_000:
+                return 409, {'error': 'work_cap'}
+            db.execute('INSERT INTO work_passes(account_id,device,day,started,end,purpose,oath) VALUES(?,?,?,?,?,?,?)',
+                       (account, device, day, now, now + length, purpose, oath))
+            return 200, self.work_view(db, account, now)
+
+    def end_work(self, account, now=None):
+        now = int(time.time() * 1000) if now is None else now
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('UPDATE work_passes SET end=? WHERE account_id=? AND started<=? AND end>?', (now, account, now, now))
+            return 200, self.work_view(db, account, now)
+
+    def work_reports(self, now=None):
+        # A day's passes are final once its video night starts at 22.30; each day is mailed once.
+        now = int(time.time() * 1000) if now is None else now
+        day, cutoff, _ = bounds(now)
+        messages = []
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            due = db.execute('SELECT * FROM work_passes WHERE reported=0 AND (day<? OR (day=? AND ?>=?)) ORDER BY account_id, day, started',
+                             (day, day, now, cutoff)).fetchall()
+            groups = {}
+            for r in due:
+                groups.setdefault((r['account_id'], r['day']), []).append(r)
+            for (account, pass_day), rows in groups.items():
+                to = db.execute('SELECT guardian_email FROM accounts WHERE id=?', (account,)).fetchone()
+                if to and to[0]:
+                    messages.append((account, to[0], work_body(pass_day, rows), WORK_SUBJECT))
+            db.execute('UPDATE work_passes SET reported=1 WHERE id IN (%s)' % ','.join(str(r['id']) for r in due) if due else 'SELECT 1')
+        for message in messages:
+            self.send(message)
+        return len(messages)
 
     def extra_view(self, db, account, now):
         a = db.execute('SELECT extra_video_until, extra_all_until FROM accounts WHERE id=?', (account,)).fetchone()
@@ -506,14 +600,14 @@ class Mailer:
         self.path = path or os.environ.get('BIRNEFES_SMTP', '/etc/bir-nefes/smtp.json')
         self.queue = queue.Queue()
         threading.Thread(target=self.run, daemon=True).start()
-    def __call__(self, account, to, body):
-        self.queue.put((account, to, body))
-    def deliver(self, to, body):
+    def __call__(self, account, to, body, subject=SUBJECT):
+        self.queue.put((account, to, body, subject))
+    def deliver(self, to, body, subject=SUBJECT):
         # Read on every send, so smtp.json can be added without a restart.
         with open(self.path) as source:
             config = json.load(source)
         message = EmailMessage()
-        message['Subject'] = SUBJECT
+        message['Subject'] = subject
         message['From'] = config['from']
         message['To'] = to
         message.set_content(body)
@@ -530,9 +624,9 @@ class Mailer:
             smtp.send_message(message)
     def run(self):
         while True:
-            account, to, body = self.queue.get()
+            account, to, body, subject = self.queue.get()
             try:
-                self.deliver(to, body)
+                self.deliver(to, body, subject)
                 ok = True
             except Exception as error:
                 # The type only: SMTP errors can carry addresses.
@@ -675,6 +769,21 @@ class Handler(BaseHTTPRequestHandler):
                 if scope not in EXTRA_SCOPES or not (minutes == 'day' or (type(minutes) is int and minutes in EXTRA_MINUTES)):
                     return self.reply(400, {'error': 'invalid_extra'})
                 return self.reply(*self.server.store.start_extra(account, scope, minutes))
+            if path == '/v1/video-work' and self.command == 'POST':
+                try:
+                    payload = self.body(4096)
+                except ValueError:
+                    return self.reply(400, {'error': 'invalid_body'})
+                minutes, purpose, oath = payload.get('minutes'), payload.get('purpose'), payload.get('oath')
+                clean = lambda text: ' '.join(''.join(c if c.isprintable() else ' ' for c in text).split())
+                if type(minutes) is not int or minutes not in WORK_MINUTES or not isinstance(purpose, str) or not isinstance(oath, str):
+                    return self.reply(400, {'error': 'invalid_work'})
+                purpose, oath = clean(purpose), clean(oath)
+                if not 3 <= len(purpose) <= 120 or len(oath) > 300:
+                    return self.reply(400, {'error': 'invalid_work'})
+                return self.reply(*self.server.store.start_work(account, device, minutes, purpose, oath))
+            if path == '/v1/video-work-end' and self.command == 'POST':
+                return self.reply(*self.server.store.end_work(account))
             if path == '/v1/extra-end' and self.command == 'POST':
                 try:
                     reason = self.body(2048).get('reason') or ''
@@ -749,5 +858,13 @@ if __name__ == '__main__':
                   os.environ.get('BIRNEFES_DEVICES', '/etc/bir-nefes/devices.json'))
     server = ThreadingHTTPServer(('127.0.0.1', int(os.environ.get('BIRNEFES_PORT', '8765'))), Handler)
     store.mail = Mailer(store)
+    def report():
+        while True:
+            try:
+                store.work_reports()
+            except sqlite3.Error as error:
+                print('work report failed:', type(error).__name__, flush=True)
+            time.sleep(60)
+    threading.Thread(target=report, daemon=True).start()
     server.store = store
     server.serve_forever()

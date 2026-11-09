@@ -6,7 +6,14 @@
 </div>
 <div id="quota" hidden>
 <section><h2>Telefon + mesajlaşma</h2><p id="status" role="status">Hakların kontrol ediliyor…</p><p id="detail"></p><small>WhatsApp · Telegram<br>Günde 5 × 20 dakika · Önce 30 saniye<br>22.30–03.00: kalan haklardan biri, 5 dakika</small></section>
-<section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><small>YouTube · tranimeizle · fullhdfilmizlesene<br>Hafta içi 05.00–08.00 ve 17.00–22.30 serbest<br>Hafta içi 08.00–17.00 toplam 20 dakika<br>Cumartesi ve pazar 05.00–22.30 serbest<br>22.30–05.00 kapalı</small></section>
+<section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><small>YouTube · tranimeizle · fullhdfilmizlesene<br>Hafta içi 05.00–08.00 ve 17.00–22.30 serbest<br>Hafta içi 08.00–17.00 toplam 10 dakika<br>Cumartesi ve pazar 05.00–22.30 serbest<br>22.30–05.00 kapalı</small></section>
+<section id="work" hidden><h2>Çalışma geçişi</h2><p id="work-active" role="status" hidden></p><button id="work-end" class="ghost" hidden>Erken bitir</button>
+<div id="work-form"><p class="hint">Hafta içi 08.00–17.00 arasında iş ya da ders videosu için. Günde en fazla 3 saat. Gün sonunda kardeşine özet e-posta gider.</p>
+<label class="field">Ne izleyeceksin?<input id="work-purpose" class="text" maxlength="120" autocomplete="off" placeholder="Örneğin: Algoritma dersi, 3. hafta"></label>
+<label class="field">Süre<select id="work-minutes"><option value="15">15 dakika</option><option value="30">30 dakika</option><option value="60" selected>1 saat</option><option value="90">1,5 saat</option></select></label>
+<label class="field">Yeminini kendin yaz<textarea id="work-oath" maxlength="300" rows="3" placeholder="İş veya çalışma dışında 5 dakika bile kullanmayacağıma yemin ederim."></textarea></label>
+<button id="work-start" class="wide">Geçişi aç</button></div>
+<p id="work-log" class="hint"></p><p id="work-status" role="status"></p></section>
 <section id="extra" hidden><h2>Ek kısıt</h2><div id="extra-active" hidden><p id="extra-lines" role="status"></p><p id="extra-pending" class="hint" hidden>Kardeşinin kararı bekleniyor.</p></div><p id="extra-hint" class="hint">Kendine ek bir sınır koy. Süre dolmadan bitiremezsin.</p>
 <label class="field">Kapsam<select id="extra-scope"><option value="video">Video ve film siteleri</option><option value="all">Her şey (telefon ve bilgisayar)</option></select></label>
 <label class="field">Süre<select id="extra-minutes"><option value="30">30 dakika</option><option value="60">1 saat</option><option value="120">2 saat</option><option value="240">4 saat</option><option value="day">Gün sonuna kadar (03.00)</option></select></label>

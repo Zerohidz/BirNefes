@@ -83,6 +83,31 @@ async function extra(message) {
   return {extraAllUntil: result.extraAllUntil, extraVideoUntil: result.extraVideoUntil, extraEndPending: result.extraEndPending === true};
 }
 
+// A study pass opens metered video after a typed oath; only the popup can ask for it.
+const WORK_MINUTES = [15, 30, 60, 90];
+async function work(message) {
+  const start = message.operation === 'video-work';
+  if (start && (!WORK_MINUTES.includes(message.minutes) || typeof message.purpose !== 'string' || typeof message.oath !== 'string'
+      || message.purpose.length > 120 || message.oath.length > 300)) return {error: 'invalid'};
+  const token = await deviceToken();
+  if (!token) return {error: 'unpaired'};
+  const response = await fetch(`${BIRNEFES_CONFIG.url}/v1/${message.operation}`, {
+    method: 'POST',
+    headers: {Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'},
+    body: JSON.stringify(start ? {minutes: message.minutes, purpose: message.purpose, oath: message.oath} : {}),
+    cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
+  });
+  if (response.status === 401) return {error: 'unpaired'};
+  if ([400, 403, 409].includes(response.status)) {
+    const {error} = await response.json().catch(() => ({}));
+    return {error: typeof error === 'string' ? error : 'invalid'};
+  }
+  if (!response.ok) throw new Error('server');
+  const result = await response.json();
+  if (!Number.isFinite(result.workUntil) || !Number.isFinite(result.workLeftMs)) throw new Error('protocol');
+  return {workUntil: result.workUntil, workLeftMs: result.workLeftMs, workToday: Array.isArray(result.workToday) ? result.workToday : []};
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const fromTarget = sender.tab && birNefesTarget(sender.url);
   const fromExtension = sender.url?.startsWith(chrome.runtime.getURL(''));
@@ -103,6 +128,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (['extra','extra-end'].includes(message?.operation)) {
     if (!fromExtension) return false;
     extra(message).then(reply, () => reply({error: 'offline'}));
+    return true;
+  }
+  if (['video-work','video-work-end'].includes(message?.operation)) {
+    if (!fromExtension) return false;
+    work(message).then(reply, () => reply({error: 'offline'}));
     return true;
   }
   if (!['enter','complete','status','emergency','video-enter','video-tick','video-stop','video-emergency','video-status'].includes(message?.operation)) return false;

@@ -211,7 +211,7 @@ class PolicyTests(unittest.TestCase):
         r=self.store.request(1,'chrome','video_enter','video-0000000001',at('2026-10-03T06:00:00'))
         self.assertEqual((r['expiresAt'],r['nextChangeAt']),(at('2026-10-03T22:30:00'),at('2026-10-03T22:30:00')))
         r=self.store.request(1,'chrome','video_tick','video-0000000001',at('2026-10-03T12:00:05'))
-        self.assertEqual(r['videoRemainingMs'],1_200_000)
+        self.assertEqual(r['videoRemainingMs'],600_000)
 
     def test_video_free_windows_and_night(self):
         for hour, expected, mode in [('04:59:59','exhausted','night'),('05:00:00','allowed','free'),('07:59:59','allowed','free'),('08:00:00','allowed','metered'),('16:59:59','allowed','metered'),('17:00:00','allowed','free'),('22:29:59','allowed','free'),('22:30:00','exhausted','night')]:
@@ -226,9 +226,9 @@ class PolicyTests(unittest.TestCase):
             key=f'video-00000000{n:02}'
             self.store.request(1,'chrome','video_enter',key,t)
             r=self.store.request(1,'chrome','video_stop',key,t+3000)
-            self.assertEqual(r['videoRemainingMs'],1200000-(n+1)*3000)
+            self.assertEqual(r['videoRemainingMs'],600000-(n+1)*3000)
         r=self.store.request(1,'chrome','video_status',now=self.t+300000)
-        self.assertEqual(r['videoRemainingMs'],1191000)
+        self.assertEqual(r['videoRemainingMs'],591000)
         self.assertEqual(self.store.request(1,'phone','status',now=self.t+300000)['used'],0)
 
     def test_video_twenty_minutes_then_free_at_17(self):
@@ -243,28 +243,28 @@ class PolicyTests(unittest.TestCase):
     def test_video_lost_stop_only_charges_last_lease(self):
         self.store.request(1,'chrome','video_enter','video-0000000001',self.t)
         r=self.store.request(1,'chrome','video_status',now=self.t+120000)
-        self.assertEqual(r['videoRemainingMs'],1195000)
+        self.assertEqual(r['videoRemainingMs'],595000)
         again=self.store.request(1,'chrome','video_status',now=self.t+240000)
-        self.assertEqual(again['videoRemainingMs'],1195000)
+        self.assertEqual(again['videoRemainingMs'],595000)
 
     def test_video_two_tabs_charge_union_and_stop_independently(self):
         self.store.request(1,'chrome','video_enter','video-0000000001',self.t)
         self.store.request(1,'chrome','video_enter','video-0000000002',self.t+1000)
         self.store.request(1,'chrome','video_stop','video-0000000001',self.t+3000)
         r=self.store.request(1,'chrome','video_stop','video-0000000002',self.t+4000)
-        self.assertEqual(r['videoRemainingMs'],1196000)
+        self.assertEqual(r['videoRemainingMs'],596000)
         replay=self.store.request(1,'chrome','video_tick','video-0000000001',self.t+5000)
         self.assertEqual(replay['state'],'expired')
-        self.assertEqual(self.store.request(1,'chrome','video_status',now=self.t+20000)['videoRemainingMs'],1196000)
+        self.assertEqual(self.store.request(1,'chrome','video_status',now=self.t+20000)['videoRemainingMs'],596000)
 
     def test_video_lease_capped_at_17_and_small_remaining(self):
         t=at('2026-10-01T16:59:58')
         r=self.store.request(1,'chrome','video_enter','video-0000000001',t)
         self.assertEqual(r['expiresAt'],at('2026-10-01T17:00:00'))
         r=self.store.request(1,'chrome','video_status',now=t+10000)
-        self.assertEqual(r['videoRemainingMs'],1198000)
+        self.assertEqual(r['videoRemainingMs'],598000)
         self.store.request(1,'chrome','video_status',now=at('2026-10-02T10:00:00'))
-        with self.store.connect() as db: db.execute('UPDATE video_quota SET spent=1199001')
+        with self.store.connect() as db: db.execute('UPDATE video_quota SET spent=599001')
         r=self.store.request(1,'chrome','video_enter','video-0000000002',at('2026-10-02T10:00:00'))
         self.assertEqual(r['expiresAt']-r['serverNow'],999)
 
@@ -289,18 +289,18 @@ class PolicyTests(unittest.TestCase):
         self.store.request(1,'chrome','video_enter','video-0000000001',self.t)
         self.store.request(1,'phone','emergency','urgent-0000000001',self.t+1000)
         r=self.store.request(1,'chrome','video_tick','video-0000000001',self.t+3000)
-        self.assertEqual((r['mode'],r['videoRemainingMs']),('emergency',1199000))
+        self.assertEqual((r['mode'],r['videoRemainingMs']),('emergency',599000))
         r=self.store.request(1,'chrome','video_tick','video-0000000001',self.t+6000)
-        self.assertEqual(r['videoRemainingMs'],1199000)
+        self.assertEqual(r['videoRemainingMs'],599000)
 
     def test_video_renewal_03_and_restart(self):
         self.store.request(1,'chrome','video_enter','video-0000000001',self.t)
         self.store.request(1,'chrome','video_stop','video-0000000001',self.t+3000)
         self.store=Store(self.store.path)
         r=self.store.request(1,'chrome','video_status',now=at('2026-10-02T02:59:59'))
-        self.assertEqual(r['videoRemainingMs'],1197000)
+        self.assertEqual(r['videoRemainingMs'],597000)
         r=self.store.request(1,'chrome','video_status',now=at('2026-10-02T03:00:00'))
-        self.assertEqual(r['videoRemainingMs'],1200000)
+        self.assertEqual(r['videoRemainingMs'],600000)
 
     def test_existing_grant_keeps_deadline_during_duration_upgrade(self):
         self.store.request(1,'phone','status',now=self.t)
@@ -318,7 +318,7 @@ class PolicyTests(unittest.TestCase):
             db.execute("UPDATE video_quota SET day='2026-10-01',spent=120123,accounted=?", (self.t,))
         self.store=Store(self.store.path)
         r=self.store.request(1,'chrome','video_status',now=self.t)
-        self.assertEqual(r['videoRemainingMs'],1079877)
+        self.assertEqual(r['videoRemainingMs'],479877)
 
 INSTALL='a'*64
 
@@ -347,7 +347,7 @@ class AccountTests(unittest.TestCase):
         self.call(a['token'],'video_enter','video-0000000001',self.t+3000000)
         self.call(a['token'],'video_stop','video-0000000001',self.t+3010000)
         r=self.call(b['token'],'video_status',now=self.t+3020000)
-        self.assertEqual((r['emergencyRemaining'],r['videoRemainingMs']),(4,1200000))
+        self.assertEqual((r['emergencyRemaining'],r['videoRemainingMs']),(4,600000))
 
     def test_paired_chrome_sees_same_quota(self):
         phone=self.store.register('android',INSTALL)
@@ -436,7 +436,7 @@ class AccountTests(unittest.TestCase):
             self.store=Store(path,devices)
             phone=self.call('phone-token','status')
             self.assertEqual((phone['used'],phone['session'],phone['expiresAt'],phone['emergencyRemaining']),(2,7,self.t+600000,1))
-            self.assertEqual(self.call('chrome-token','video_status')['videoRemainingMs'],1080000)
+            self.assertEqual(self.call('chrome-token','video_status')['videoRemainingMs'],480000)
             with self.store.connect() as db:
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM devices').fetchone()[0],2)
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM accounts').fetchone()[0],1)
@@ -652,5 +652,52 @@ class HttpTests(unittest.TestCase):
             self.assertEqual((response.status,response.headers['Content-Type']),(200,'text/html; charset=utf-8'))
         self.assertIn('lang="tr"',page)
         self.assertIn("fetch('v1/decide'",page)
+
+class WorkPassTests(unittest.TestCase):
+    setUp, tearDown, verified = GuardianTests.setUp, GuardianTests.tearDown, GuardianTests.verified
+    OATH = 'İş dışında 5 dakika bile kullanmayacağıma YEMİN EDERİM'
+    def chrome(self):
+        token = self.store.pair(self.store.pair_code(self.account, self.t)['code'], 'chrome', now=self.t)['token']
+        return self.store.authenticate(token)[1]
+
+    def test_oath_window_device_and_mode(self):
+        device = self.chrome()
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', 'söz veriyorum', self.t), (400, {'error': 'no_oath'}))
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, at('2026-10-01T18:00:00'))[1], {'error': 'not_metered'})
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, at('2026-10-03T10:00:00'))[1], {'error': 'not_metered'})
+        phone = self.store.authenticate(self.store.register('android', INSTALL, self.t)['token'])[1]
+        self.assertEqual(self.store.start_work(self.account, phone, 60, 'Ders', self.OATH, self.t)[1], {'error': 'chrome_only'})
+        status, view = self.store.start_work(self.account, device, 60, 'Ders', self.OATH, self.t)
+        self.assertEqual((status, view['workUntil']), (200, self.t + 3_600_000))
+        self.assertEqual(self.store.start_work(self.account, device, 30, 'Ders', self.OATH, self.t + 1000)[1], {'error': 'active'})
+        r = self.store.request(self.account, device, 'video_enter', 'video-0000000001', self.t + 60_000)
+        self.assertEqual((r['state'], r['mode'], r['expiresAt']), ('allowed', 'work', self.t + 3_600_000))
+        # The pass does not spend the metered budget.
+        self.assertEqual(r['videoRemainingMs'], 600_000)
+        self.store.end_work(self.account, self.t + 120_000)
+        r = self.store.request(self.account, device, 'video_tick', 'video-0000000001', self.t + 121_000)
+        self.assertEqual(r['mode'], 'metered')
+
+    def test_daily_cap_and_extra_limit(self):
+        device = self.chrome()
+        for n in range(2):
+            self.assertEqual(self.store.start_work(self.account, device, 90, 'Ders', self.OATH, self.t + n * 5_400_000)[0], 200)
+        self.assertEqual(self.store.start_work(self.account, device, 15, 'Ders', self.OATH, self.t + 10_800_000)[1], {'error': 'work_cap'})
+        self.store.start_extra(self.account, 'video', 30, at('2026-10-02T10:00:00'))
+        self.assertEqual(self.store.start_work(self.account, device, 15, 'Ders', self.OATH, at('2026-10-02T10:01:00'))[1], {'error': 'limited'})
+
+    def test_summary_mailed_once_after_night_starts(self):
+        self.verified()
+        device = self.chrome()
+        self.sent.clear()
+        self.store.start_work(self.account, device, 30, 'Algoritma dersi', self.OATH, self.t)
+        self.store.end_work(self.account, self.t + 600_000)
+        self.assertEqual(self.store.work_reports(at('2026-10-01T22:00:00')), 0)
+        self.assertEqual(self.store.work_reports(at('2026-10-01T22:30:00')), 1)
+        account, to, body, subject = self.sent[-1]
+        self.assertEqual((to, subject), ('abla@example.com', app.WORK_SUBJECT))
+        self.assertIn('10.00–10.10 (10 dk): Algoritma dersi', body)
+        self.assertIn('YEMİN EDERİM', body)
+        self.assertEqual(self.store.work_reports(at('2026-10-02T09:00:00')), 0)
 
 if __name__=='__main__': unittest.main()

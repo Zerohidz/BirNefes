@@ -39,8 +39,9 @@ domains. The extension does not cover unrelated mirrors or native desktop apps.
 ## Chrome video / film rules
 
 - **05:00–08:00:** free.
-- **08:00–17:00:** twenty minutes total on weekdays, accumulated across short visits. No
-  30-second wait and no fixed twenty-minute session. This does not consume phone/message
+- **08:00–17:00:** ten minutes total on weekdays (twenty before 1.8.0), accumulated across
+  short visits. No 30-second wait and no fixed session. For work or study a **Çalışma
+  geçişi** opens these hours instead (see below). This does not consume phone/message
   rights. On Saturday and Sunday these hours are free too.
 - **17:00–22:30:** free.
 - **22:30–05:00:** blocked, unless a monthly urgent pass is used.
@@ -130,6 +131,22 @@ right, for at most five minutes. It never becomes a permanent exception.
 
 **Kontrol süresi** sets how long the blocker waits for the server's answer on a
 fresh entry: 0.5 to 3 seconds in half-second steps, 1 second by default.
+
+## Çalışma geçişi (study pass, 1.8.0)
+
+Weekdays 08:00–17:00, the Chrome popup can open video for 15, 30, 60 or 90 minutes
+without spending the ten-minute budget. The user writes what they will watch and types
+their own oath, which must contain **yemin ederim** (checked on the server, Turkish
+casing folded). It is Chrome-only (`403 chrome_only` from a phone token), one pass at a
+time (`409 active`), at most three hours a day (`409 work_cap`; a shortened last pass
+uses what is left), not during an extra limit (`409 limited`) and not outside the
+metered hours (`409 not_metered`). It can be ended early. Every pass is kept in
+`work_passes`; once the day's video night starts at 22:30 the guardian gets one summary
+mail for that day with times, purposes and oaths. Playback continues in the background
+like other unmetered time, and the corner badge counts down to its end.
+
+API: `POST /v1/video-work {"minutes","purpose","oath"}`, `POST /v1/video-work-end`;
+video answers carry `workUntil`, `workLeftMs`, `workToday` and use mode `work`.
 
 ## Ek kısıt (extra limit, 1.7.0)
 

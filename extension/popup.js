@@ -16,16 +16,17 @@ async function showQuota() {
   try {
     const r=await chrome.runtime.sendMessage({operation:'video-status'});
     if(!r || r.error) throw new Error('offline');
+    showWork(r);
     const seconds=Math.floor(r.videoRemainingMs/1000);
-    status.textContent=r.mode==='free' ? 'Şu an serbest' : r.mode==='emergency' ? 'Acele geçişin açık' : r.mode==='night' ? 'Sabah 05.00’te açılır' : r.mode==='limited' ? 'Ek kısıt açık' : `${Math.floor(seconds/60)} dk ${seconds%60} sn kaldı`;
+    status.textContent=r.mode==='free' ? 'Şu an serbest' : r.mode==='emergency' ? 'Acele geçişin açık' : r.mode==='work' ? 'Çalışma geçişin açık' : r.mode==='night' ? 'Sabah 05.00’te açılır' : r.mode==='limited' ? 'Ek kısıt açık' : `${Math.floor(seconds/60)} dk ${seconds%60} sn kaldı`;
     detail.textContent='Bu süre mesajlaşma haklarından ayrıdır. Sayaçlı saatlerde sekmeden ayrılınca video durur, serbest saatlerde arka planda da çalar.';
-  } catch {status.textContent='Süre kontrol edilemedi';detail.textContent='Sunucu bağlantısını kontrol et.';}
+  } catch {$('work').hidden=true;status.textContent='Süre kontrol edilemedi';detail.textContent='Sunucu bağlantısını kontrol et.';}
 })();
 }
 
 const $ = id => document.getElementById(id);
 const send = message => chrome.runtime.sendMessage(message).catch(() => ({error:'offline'}));
-const failures = {no_guardian:'Kardeş ekli olmadığı için süre dolmadan bitmez.', mail_limit:'Bugünkü e-posta sınırı doldu. Yarın yeniden dene.', no_extra:'Açık bir ek kısıt yok.', invalid:'Seçimini kontrol et.', offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', locked:'Kardeş kilidi açıkken hesap değiştirilemez. Telefondan izin iste.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
+const failures = {no_guardian:'Kardeş ekli olmadığı için süre dolmadan bitmez.', mail_limit:'Bugünkü e-posta sınırı doldu. Yarın yeniden dene.', no_extra:'Açık bir ek kısıt yok.', invalid:'Seçimini kontrol et.', no_oath:'Yeminin içinde “yemin ederim” geçmeli.', not_metered:'Geçiş yalnız hafta içi 08.00–17.00 arasında gerekir. Şu an video serbest ya da kapalı.', chrome_only:'Çalışma geçişi yalnız bilgisayarda açılır.', active:'Zaten açık bir çalışma geçişin var.', work_cap:'Bugünkü 3 saatlik çalışma süresi doldu.', offline:'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.', invalid_code:'Kod yanlış ya da süresi dolmuş. Telefondan yeni kod al.', locked:'Kardeş kilidi açıkken hesap değiştirilemez. Telefondan izin iste.', unpaired:'Bu bilgisayarın bağlantısı geçersiz. Başka hesaba bağlan.'};
 
 async function joined(button, message) {
   const status = $('join-status');
@@ -118,4 +119,37 @@ $('extra-end').addEventListener('click', async () => {
   $('extra-reason').value = '';
   $('extra-pending').hidden = !r.extraEndPending;
   $('extra-status').textContent = r.extraEndPending ? 'İstek kardeşine e-postayla gitti.' : '';
+});
+
+// Çalışma geçişi: the oath is typed, never prefilled; the server checks it again.
+const clock = ms => new Date(ms).toLocaleTimeString('tr-TR', {timeZone:'Europe/Istanbul', hour:'2-digit', minute:'2-digit'}).replace(':', '.');
+function showWork(r) {
+  const now = r.serverNow ?? Date.now();
+  const active = r.workUntil > now;
+  $('work-active').hidden = !active; $('work-end').hidden = !active; $('work-form').hidden = active;
+  if (active) $('work-active').textContent = `Açık · ${birNefesUntil(r.workUntil)}`;
+  const today = Array.isArray(r.workToday) ? r.workToday : [];
+  const lines = today.map(p => `${clock(p.started)}–${p.end > now ? 'şimdi' : clock(p.end)} · ${p.purpose}`);
+  if (today.length) lines.push(`Bugün kalan: ${Math.floor((r.workLeftMs || 0) / 60000)} dakika`);
+  $('work-log').textContent = lines.join('\n');
+  $('work').hidden = false;
+}
+$('work-start').addEventListener('click', async () => {
+  const purpose = $('work-purpose').value.trim(), oath = $('work-oath').value.trim();
+  const folded = oath.replace(/İ/g, 'i').replace(/I/g, 'ı').toLocaleLowerCase('tr-TR').replace(/\s+/g, ' ');
+  if (purpose.length < 3) { $('work-status').textContent = 'Ne izleyeceğini yaz.'; return; }
+  if (!folded.includes('yemin ederim')) { $('work-status').textContent = failures.no_oath; return; }
+  const button = $('work-start');
+  button.disabled = true; $('work-status').textContent = '';
+  const r = await send({operation:'video-work', minutes:Number($('work-minutes').value), purpose, oath});
+  button.disabled = false;
+  if (!r || r.error) { $('work-status').textContent = failures[r?.error] || failures.offline; return; }
+  $('work-purpose').value = ''; $('work-oath').value = '';
+  showWork(r);
+  $('video-status').textContent = 'Çalışma geçişin açık';
+});
+$('work-end').addEventListener('click', async () => {
+  const r = await send({operation:'video-work-end'});
+  if (!r || r.error) { $('work-status').textContent = failures[r?.error] || failures.offline; return; }
+  showQuota();
 });
