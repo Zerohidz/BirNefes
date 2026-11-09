@@ -294,7 +294,7 @@ public final class MainActivity extends Activity {
     private void chooseExtraDuration(String scope) {
         Object[] minutes = {30, 60, 120, 240, "day"};
         Ui.show(new AlertDialog.Builder(this).setTitle("Ne kadar sürsün?")
-            .setItems(new String[] {"30 dakika", "1 saat", "2 saat", "4 saat", "Gün sonuna kadar (03.00)"},
+            .setItems(new String[] {"30 dakika", "1 saat", "2 saat", "4 saat", Account.rules(this).dayEndChoice()},
                 (dialog, which) -> confirmExtra(scope, minutes[which]))
             .setNegativeButton("Vazgeç", null));
     }
@@ -424,13 +424,14 @@ public final class MainActivity extends Activity {
             if (response.status != 200) return;
             Account.rememberGuard(this, response.body.optJSONObject("guard"));
             Account.rememberExtra(this, response.body);
+            Account.rememberRules(this, response.body);
             int remaining = response.body.optInt("remaining", -1);
             boolean open = "allowed".equals(response.body.optString("state"));
             runOnUiThread(() -> {
                 quota.setText(open ? "Şu an bir kullanım açık" + (remaining >= 0 ? " · Bugün " + remaining + " hak kaldı" : "")
                     : remaining >= 0 ? "Bugün " + remaining + " hak kaldı" : "");
                 quota.setVisibility(remaining >= 0 ? View.VISIBLE : View.GONE);
-                if (!isDestroyed()) { showGuard(null); showExtra(null); }
+                if (!isDestroyed()) { refreshStatus(); showExtra(null); }
             });
         }, false);
     }
@@ -486,7 +487,7 @@ public final class MainActivity extends Activity {
         boolean on = serviceEnabled();
         status.setText(on ? "Bir Nefes açık" : "Bir Nefes kapalı");
         statusDetail.setText(!on ? "Mesajların ve ekran içeriğin okunmaz."
-            : SyncConfig.ENABLED ? "Telefon + Chrome · Ortak haklar · Yenileme 03.00" : "Yerel kullanım · Senkronizasyon kapalı");
+            : SyncConfig.ENABLED ? Account.rules(this).statusLine() : "Yerel kullanım · Senkronizasyon kapalı");
         int whenOff = on ? View.GONE : View.VISIBLE;
         enable.setVisibility(whenOff);
         restrictedNote.setVisibility(whenOff);

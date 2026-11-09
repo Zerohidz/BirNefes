@@ -1,27 +1,46 @@
 <!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Bir Nefes</title><link rel="stylesheet" href="popup.css"></head><body><main>
 <h1>Bir Nefes</h1><p class="sub">Ekranına ayırdığın zamanı seç.</p>
 <div id="join" hidden>
-<section><h2>Telefondaki kodu gir</h2><p class="hint">Telefonda Bir Nefes’i aç, eşleştirme kodunu al ve buraya yaz.</p><form id="pair-form"><input id="code" autocomplete="off" spellcheck="false" maxlength="12" placeholder="ABCD-EFGH" aria-label="Eşleştirme kodu"><button id="pair">Bağlan</button></form></section>
+<section><h2>Telefondaki kodu gir</h2><form id="pair-form"><input id="code" autocomplete="off" spellcheck="false" maxlength="12" placeholder="ABCD-EFGH" aria-label="Eşleştirme kodu"><button id="pair">Bağlan</button></form><details><summary>Kod nerede?</summary><p class="hint">Telefonda Bir Nefes’i aç, eşleştirme kodunu al ve buraya yaz.</p></details></section>
 <p id="join-status" role="status"></p>
 </div>
 <div id="quota" hidden>
-<section><h2>Telefon + mesajlaşma</h2><p id="status" role="status">Hakların kontrol ediliyor…</p><p id="detail"></p><small>WhatsApp · Telegram<br>Günde 5 × 20 dakika · Önce 30 saniye<br>22.30–03.00: kalan haklardan biri, 5 dakika</small></section>
-<section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><small>YouTube · tranimeizle · fullhdfilmizlesene<br>Hafta içi 05.00–08.00 ve 17.00–22.30 serbest<br>Hafta içi 08.00–17.00 toplam 10 dakika<br>Cumartesi ve pazar 05.00–22.30 serbest<br>22.30–05.00 kapalı</small></section>
+<div class="tabs" role="tablist" aria-label="Bölümler">
+<button role="tab" id="tab-status" aria-controls="panel-status" aria-selected="true">Durum</button><button role="tab" id="tab-passes" aria-controls="panel-passes" aria-selected="false" tabindex="-1">Geçişler</button><button role="tab" id="tab-rules" aria-controls="panel-rules" aria-selected="false" tabindex="-1">Kurallar</button><button role="tab" id="tab-account" aria-controls="panel-account" aria-selected="false" tabindex="-1">Hesap</button>
+</div>
+
+<div role="tabpanel" id="panel-status" aria-labelledby="tab-status" tabindex="0">
+<section><h2>Telefon + mesajlaşma</h2><p id="status" role="status">Hakların kontrol ediliyor…</p><p id="detail"></p></section>
+<section><h2>Video / film</h2><p id="video-status" role="status">Süren kontrol ediliyor…</p><p id="video-detail"></p><details><summary>Nasıl işler?</summary><p class="hint">Bu süre mesajlaşma haklarından ayrıdır. Sayaçlı saatlerde sekmeden ayrılınca video durur, serbest saatlerde arka planda da çalar.</p></details></section>
+<section><h2>Acele geçişi</h2><p id="urgent"></p></section>
+<a href="https://web.whatsapp.com/" target="_blank" rel="noopener">WhatsApp Web’i aç</a>
+</div>
+
+<div role="tabpanel" id="panel-passes" aria-labelledby="tab-passes" tabindex="0" hidden>
 <section id="work" hidden><h2>Çalışma geçişi</h2><p id="work-active" role="status" hidden></p><button id="work-end" class="ghost" hidden>Erken bitir</button>
-<div id="work-form"><p class="hint">Hafta içi 08.00–17.00 arasında iş ya da ders videosu için. Günde en fazla 3 saat. Gün sonunda kardeşine özet e-posta gider.</p>
+<div id="work-form"><details><summary>Ne zaman gerekir?</summary><p id="work-hint" class="hint"></p></details>
 <label class="field">Ne izleyeceksin?<input id="work-purpose" class="text" maxlength="120" autocomplete="off" placeholder="Örneğin: Algoritma dersi, 3. hafta"></label>
-<label class="field">Süre<select id="work-minutes"><option value="15">15 dakika</option><option value="30">30 dakika</option><option value="60" selected>1 saat</option><option value="90">1,5 saat</option></select></label>
+<label class="field">Süre<select id="work-minutes"></select></label>
 <label class="field">Yeminini kendin yaz<textarea id="work-oath" maxlength="300" rows="3" placeholder="İş veya çalışma dışında 5 dakika bile kullanmayacağıma yemin ederim."></textarea></label>
 <button id="work-start" class="wide">Geçişi aç</button></div>
 <p id="work-log" class="hint"></p><p id="work-status" role="status"></p></section>
-<section id="extra" hidden><h2>Ek kısıt</h2><div id="extra-active" hidden><p id="extra-lines" role="status"></p><p id="extra-pending" class="hint" hidden>Kardeşinin kararı bekleniyor.</p></div><p id="extra-hint" class="hint">Kendine ek bir sınır koy. Süre dolmadan bitiremezsin.</p>
+<section id="extra" hidden><h2>Ek kısıt</h2><div id="extra-active" hidden><p id="extra-lines" role="status"></p><p id="extra-pending" class="hint" hidden>Kardeşinin kararı bekleniyor.</p></div><details id="extra-hint"><summary>Ek kısıt nedir?</summary><p class="hint">Kendine ek bir sınır koy. Süre dolmadan bitiremezsin.</p></details>
 <label class="field">Kapsam<select id="extra-scope"><option value="video">Video ve film siteleri</option><option value="all">Her şey (telefon ve bilgisayar)</option></select></label>
-<label class="field">Süre<select id="extra-minutes"><option value="30">30 dakika</option><option value="60">1 saat</option><option value="120">2 saat</option><option value="240">4 saat</option><option value="day">Gün sonuna kadar (03.00)</option></select></label>
+<label class="field">Süre<select id="extra-minutes"><option value="30">30 dakika</option><option value="60">1 saat</option><option value="120">2 saat</option><option value="240">4 saat</option><option value="day" id="extra-day">Gün sonuna kadar</option></select></label>
 <button id="extra-start" class="wide">Başlat</button>
 <div id="extra-end-box" hidden><input id="extra-reason" class="text" maxlength="200" autocomplete="off" placeholder="Neden? (isteğe bağlı)" aria-label="Erken bitirme nedeni"><button id="extra-end" class="ghost">Erken bitirmek için kardeşinden izin iste</button></div>
 <p id="extra-status" role="status"></p></section>
-<p id="urgent"></p><a href="https://web.whatsapp.com/" target="_blank" rel="noopener">WhatsApp Web’i aç</a>
-<section><h2>Telefon</h2><button id="link-phone" class="ghost">Telefonu bağla</button><div id="pair-code" hidden><output id="code-value" aria-live="polite"></output><p id="code-time"></p><p class="hint">Telefondaki Bir Nefes’te bu kodu gir.</p></div><p id="link-status" role="status"></p><button id="switch" class="link">Başka hesaba bağlan</button></section>
-<small>Günlük yenileme 03.00 · İstanbul saati<br>Acele: ayda 4 × 20 dakika · Beklemeden<br>Aylık yenileme: ayın 1’i, 03.00</small>
 </div>
-</main><script src="sites.js"></script><script src="popup.js"></script></body></html>
+
+<div role="tabpanel" id="panel-rules" aria-labelledby="tab-rules" tabindex="0" hidden>
+<section id="rules-pending" hidden><h2>Bekleyen değişiklik</h2><p id="rules-pending-when" class="when"></p><ul id="rules-pending-lines" class="lines"></ul></section>
+<div id="rules-current"></div>
+<p class="note">Değiştirmek için telefondaki Bir Nefes → Kurallar</p>
+</div>
+
+<div role="tabpanel" id="panel-account" aria-labelledby="tab-account" tabindex="0" hidden>
+<section><h2>Telefon</h2><button id="link-phone" class="ghost">Telefonu bağla</button><div id="pair-code" hidden><output id="code-value" aria-live="polite"></output><p id="code-time"></p><p class="hint">Telefondaki Bir Nefes’te bu kodu gir.</p></div><p id="link-status" role="status"></p></section>
+<section><h2>Hesap</h2><details><summary>Başka hesaba bağlanmak ne yapar?</summary><p class="hint">Bu bilgisayar mevcut hesaptan çıkar ve yeni bir telefon koduyla başka hesaba bağlanır. Kardeş kilidi açıkken izin gerekir.</p></details><button id="switch" class="link">Başka hesaba bağlan</button></section>
+</div>
+</div>
+</main><script src="sites.js"></script><script src="rules.js"></script><script src="popup.js"></script></body></html>

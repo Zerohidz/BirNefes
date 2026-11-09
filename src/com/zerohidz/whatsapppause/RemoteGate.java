@@ -76,6 +76,8 @@ public final class RemoteGate {
                 if (operation.equals("status")) Account.rememberGuard(context, response.optJSONObject("guard"));
                 // Every answer carries the extra limit; the main screen reads the saved copy.
                 Account.rememberExtra(context, response);
+                // And the rules in force; the screens draw their texts from the saved copy.
+                Account.rememberRules(context, response);
             } catch (Exception error) {
                 // Log only the exception class: no credentials, headers, or body.
                 android.util.Log.w("BirNefes", "Quota connection failed: " + error.getClass().getSimpleName());

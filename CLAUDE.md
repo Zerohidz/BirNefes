@@ -80,7 +80,7 @@ Production operations are in the README's "Server operations" section. `server/d
 
 ## Things that must change together
 
-- **Policy constants** live in both `server/app.py` and `DelayGate.java`, and the values also appear in user-facing strings in `PauseService`, `MainActivity`, and the extension. The README and tests state them as well.
+- **Policy defaults** live in `DEFAULT_RULES` in `server/app.py`, the extension's `rules.js` (fallback for an older server) and Android's `Rules.java`; the local-only `DelayGate.java` keeps the same values as constants. Accounts can override them (`rule_sets`, README "Hesap kuralları"), so clients build their texts from the `rules` in server answers; fixed strings remaining in `PauseService` must match the defaults. The README and tests state them as well.
 - **Target domains** live in both `extension/sites.js` and the `content_scripts` matches/`include_globs` in `extension/manifest.json`.
 - **Version** lives in both `AndroidManifest.xml` (`versionCode` + `versionName`) and `extension/manifest.json`. The artifact filenames derive from these.
 - **Accessing a new Android package** via `PackageManager` intents may need a matching `<queries>` entry in `AndroidManifest.xml`.

@@ -168,6 +168,76 @@ like other unmetered time, and the corner badge counts down to its end.
 API: `POST /v1/video-work {"minutes","purpose","oath"}`, `POST /v1/video-work-end`;
 video answers carry `workUntil`, `workLeftMs`, `workToday` and use mode `work`.
 
+## Hesap kuralları (per-account rules)
+
+The numbers in the sections above are the defaults. Each account can change them; the server
+keeps versioned rule sets in `rule_sets` and applies an account's set wherever these rules are
+enforced. An account without a set uses `DEFAULT_RULES` in `server/app.py`:
+
+```json
+{
+  "rights": 5, "windowMin": 20, "waitSec": 30,
+  "renewal": "03:00", "nightStart": "22:30", "nightWindowMin": 5,
+  "urgentCount": 4, "urgentMin": 20,
+  "video": {
+    "weekday": {"closedFrom": "22:30", "closedUntil": "05:00", "meteredFrom": "08:00", "meteredUntil": "17:00", "budgetMin": 10},
+    "weekend": {"closedFrom": "22:30", "closedUntil": "05:00", "meteredFrom": null, "meteredUntil": null, "budgetMin": 0}
+  },
+  "work": {"enabled": true, "minutes": [15, 30, 60, 90], "dailyMin": 180, "summary": true}
+}
+```
+
+Time model: times are `"HH:MM"` on a 30-minute grid. A budget day runs from `renewal` to the next
+`renewal`; `off(t)` is the minutes after the renewal. The day type comes from the budget day's
+date (Saturday and Sunday are `weekend`; Friday night belongs to Friday). Video is closed in
+`[renewal, closedUntil)` and `[closedFrom, next renewal)` (`closedFrom: null` = no night close), metered
+in `[meteredFrom, meteredUntil)` with `budgetMin` minutes, and free otherwise. The phone night rule
+starts at `nightStart` (`nightWindowMin: 0` = no night right). The study pass needs metered hours
+that day and its daily summary is mailed once that day's video close (or its renewal) has passed.
+
+Ranges (anything else, a missing or extra key or a wrong type is `400 invalid_rules` with `field`,
+the path of the first bad field, e.g. `video.weekday.meteredFrom`):
+
+| Field | Allowed |
+| --- | --- |
+| `rights` | 0–10 |
+| `windowMin` | 5–60, step 5 |
+| `waitSec` | 0–300, step 5 |
+| `renewal` | 00:00–06:00 |
+| `nightStart` | `off` 720–1380 (12 h to 23 h after the renewal) |
+| `nightWindowMin` | 0–20, step 5 |
+| `urgentCount` / `urgentMin` | 0–8 / 5–30, step 5 |
+| `video.T.closedFrom` | `off` ≥ 720, or `null` |
+| `video.T.closedUntil` | `off` < 720 |
+| `video.T.metered*` | both `null` or `off(closedUntil) ≤ off(meteredFrom) < off(meteredUntil) ≤ off(closedFrom)` |
+| `video.T.budgetMin` | 0–120, step 5; 0 without metered hours |
+| `work.minutes` | sorted, distinct, non-empty subset of 15, 30, 45, 60, 90, 120 |
+| `work.dailyMin` | 15–480, step 15 |
+| `work.enabled`, `work.summary` | true / false |
+
+Taking effect: a saved set starts at the next renewal of the rules in force, never at once (the
+**Ek kısıt** is the immediate tightening). There is at most one pending set: saving again replaces
+it, and `rules-cancel` drops it. When the renewal time changes, the change starts at the old renewal;
+a later new renewal keeps the previous budget day (and its spent quota) until it is reached.
+
+Strict mode: while the guardian lock holds (a guardian and no release in force), a set that is looser
+than the rules in force is refused with `409 locked` and nothing is stored. Looser means any of: more
+rights, longer window, shorter wait, any renewal change, a later night start, a longer night window,
+more or longer urgent passes, any 30-minute video slice moving up (closed < metered < free), a bigger
+video budget, the study pass turned on, a longer longest pass, a bigger daily study total, or the
+summary turned off. A mixed change counts as looser. To loosen, ask the guardian through **İzin iste**;
+a loosening saved during a release still takes effect after the lock returns. Tightening and
+cancelling are always allowed. The same lock stops a locked phone from pairing into another account
+(`/v1/pair` with its `install` answers `403 locked`).
+
+API:
+
+- `GET /v1/rules` → `{"current":{"version","effectiveAt","rules"},"pending":{"version","effectiveAt","rules","looser"}|null,"defaults","locked","serverNow"}` (version 0 and `effectiveAt` 0 = defaults).
+- `POST /v1/rules {"rules","baseVersion","dryRun"?}` (body at most 4096 bytes; other keys are `400 invalid_body`). `baseVersion` is the highest version the client has seen (pending, else current, else 0); otherwise `409 stale`. `dryRun: true` stores nothing and answers `{"looser","changes","effectiveAt","allowed"}`, where `changes` lists the changed leaf paths against the rules in force. A save answers like `GET /v1/rules`.
+- `POST /v1/rules-cancel` drops the pending set and answers like `GET /v1/rules`.
+- `/v1/status`, `/v1/enter|complete|emergency` and every `/v1/video-*` answer also carry `rulesVersion` and `rules` (in force now). `remaining`, `emergencyRemaining`, `videoRemainingMs`, `workLeftMs` and `nextChangeAt` follow them.
+- `/v1/video-work` answers `409 disabled` when the study pass is off and `400 invalid_work` for minutes outside `work.minutes`.
+
 ## Ek kısıt (extra limit, 1.7.0)
 
 Either device can start a temporary limit on top of the rules: scope **Her şey**

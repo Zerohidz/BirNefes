@@ -371,13 +371,15 @@ public final class PauseService extends AccessibilityService {
                 content.addView(number);
                 if (rights > 0) content.addView(label("Bundan sonra " + (rights - 1) + " hakkın kalacak.", 16));
             }
-            countdown = label("30", 80);
+            countdown = label(String.valueOf(Account.rules(this).waitSec), 80);
             countdown.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             content.addView(countdown);
         }
-        content.addView(label(connecting ? "Birazdan devam edeceksin." : offline ? "Bağlantı kurulmadan yeni kullanım hakkı açılamaz." : waiting ? "30 saniyelik mola bitince otomatik devam edeceksin."
+        Rules rules = Account.rules(this);
+        content.addView(label(connecting ? "Birazdan devam edeceksin." : offline ? "Bağlantı kurulmadan yeni kullanım hakkı açılamaz."
+            : waiting ? Rules.capitalized(Rules.adjective(Rules.seconds(rules.waitSec))) + " mola bitince otomatik devam edeceksin."
             : state == DelayGate.State.EXPIRED ? "Ana sayfaya dön. Kalan hakkın varsa yeniden girişte yeni mola başlar."
-            : "Hakların her gün 03.00’te yenilenir.", 16));
+            : "Hakların her gün " + Rules.at(rules.renewal) + " yenilenir.", 16));
         Button home = Ui.primary(this, "Ana sayfaya dön");
         home.setOnClickListener(v -> goHome());
         content.addView(home);
@@ -392,37 +394,46 @@ public final class PauseService extends AccessibilityService {
         boolean connecting = state == DelayGate.State.CONNECTING, offline = state == DelayGate.State.ERROR;
         boolean limited = mode.equals("limited"), night = mode.equals("night");
         boolean shut = video.browser() && mode.equals("metered");
+        Rules rules = Account.rules(this);
+        // The day type of the video day now (it turns at the renewal hour).
+        java.time.ZonedDateTime local = java.time.ZonedDateTime.now(Rules.ZONE).minusMinutes(rules.renewal);
+        String dayKey = local.getDayOfWeek().getValue() >= 6 ? "weekend" : "weekday";
+        Rules.Day day = dayKey.equals("weekend") ? rules.weekend : rules.weekday;
         String until = limited && video.limitUntil() > 0 ? ExtraLimit.until(video.limitUntil(), System.currentTimeMillis()) : "";
         content.addView(label(connecting ? "Video süren kontrol ediliyor…" : offline ? "Sunucuya ulaşılamadı."
-            : limited ? "Ek kısıt açık." : night ? "Şimdi ekranı bırakma zamanı." : shut ? "Gündüz tarayıcıda YouTube kapalı." : "10 dakikalık video hakkın bitti.", 32));
+            : limited ? "Ek kısıt açık." : night ? "Şimdi ekranı bırakma zamanı." : shut ? "Bu saatte tarayıcıda YouTube kapalı."
+            : Rules.capitalized(Rules.adjective(Rules.minutes(day.budgetMin))) + " video hakkın bitti.", 32));
         content.addView(label(connecting ? "YouTube günlük haklardan değil, bilgisayarla ortak video süresinden açılır."
             : offline ? "Bağlantı gelince kalan süren kontrol edilir."
             : limited ? (until.isEmpty() ? "Kendi koyduğun kısıt sürüyor." : until.substring(0, 1).toUpperCase(java.util.Locale.forLanguageTag("tr")) + until.substring(1) + " kendi koyduğun kısıt sürüyor.")
-            : night ? "YouTube 05.00’te açılacak."
-            : shut ? "Hafta içi 08.00–17.00 YouTube yalnız uygulamadan ya da bilgisayardan, ortak 10 dakikayla açılır." : "17.00’de serbest kullanım başlayacak. İş ya da ders için bilgisayardan çalışma geçişi açabilirsin.", 18));
+            : night ? "YouTube " + Rules.at(day.closedUntil) + " açılacak."
+            : shut ? "Sayaçlı saatlerde YouTube yalnız uygulamadan ya da bilgisayardan, ortak video süresiyle açılır."
+            : (day.metered() ? Rules.at(day.meteredUntil) + " serbest kullanım başlayacak." : "Bugünkü video süren doldu.")
+              + (rules.workEnabled ? " İş ya da ders için bilgisayardan çalışma geçişi açabilirsin." : ""), 18));
         Button home = Ui.primary(this, "Ana sayfaya dön");
         home.setOnClickListener(v -> goHome());
         content.addView(home);
-        if (!connecting && video.emergencyRemaining() != 0) {
-            Button urgent = Ui.secondary(this, "Acele geçişi · 20 dakika" + (video.emergencyRemaining() > 0 ? " · " + video.emergencyRemaining() + "/4 kaldı" : ""));
+        if (!connecting && video.emergencyRemaining() != 0 && rules.urgentCount > 0) {
+            Button urgent = Ui.secondary(this, "Acele geçişi · " + Rules.minutes(rules.urgentMin) + (video.emergencyRemaining() > 0 ? " · " + video.emergencyRemaining() + "/" + rules.urgentCount + " kaldı" : ""));
             urgent.setOnClickListener(v -> {
                 urgent.setText("Aylık 1 hakkı kullan ve aç");
                 urgent.setOnClickListener(confirm -> { video.emergency(); render(video.state()); });
             });
             content.addView(urgent);
         }
-        content.addView(label("Hafta içi 05.00–08.00 ve 17.00–22.30 serbest, 08.00–17.00 bilgisayarla ortak toplam 10 dakika. Hafta sonu 05.00–22.30 serbest. 22.30–05.00 kapalı. Mola YouTube’u açmaz.", 14));
+        content.addView(label("Hafta içi: " + rules.dayText("weekday") + ". Hafta sonu: " + rules.dayText("weekend") + ". Süre telefon ve bilgisayar ortak; mola YouTube’u açmaz.", 14));
         attachOverlay();
     }
     private void addUrgent(LinearLayout content) {
-        if (remote != null && remote.emergencyRemaining() != 0) {
-            Button urgent = Ui.secondary(this, "Acele geçişi · 20 dakika" + (remote.emergencyRemaining() >= 0 ? " · " + remote.emergencyRemaining() + "/4 kaldı" : ""));
+        Rules rules = Account.rules(this);
+        if (remote != null && remote.emergencyRemaining() != 0 && rules.urgentCount > 0) {
+            Button urgent = Ui.secondary(this, "Acele geçişi · " + Rules.minutes(rules.urgentMin) + (remote.emergencyRemaining() >= 0 ? " · " + remote.emergencyRemaining() + "/" + rules.urgentCount + " kaldı" : ""));
             urgent.setOnClickListener(v -> {
                 urgent.setText("Aylık 1 hakkı kullan ve aç");
                 urgent.setOnClickListener(confirm -> { remote.emergency(); render(remote.state()); });
             });
             content.addView(urgent);
-            content.addView(label("Günlük hakkından düşmez. Ayda 4 kez; ayın 1’inde 03.00’te yenilenir. İnternet gerekir.", 14));
+            content.addView(label("Günlük hakkından düşmez. Ayda " + rules.urgentCount + " kez; ayın 1’inde " + Rules.at(rules.renewal) + " yenilenir. İnternet gerekir.", 14));
         }
     }
     private void attachOverlay() {

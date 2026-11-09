@@ -81,6 +81,7 @@ public final class VideoGate {
                     if (reply.status != 200) throw new java.io.IOException("HTTP " + reply.status);
                     response = reply.body;
                     Account.rememberExtra(context, response);
+                    Account.rememberRules(context, response);
                 } catch (Exception error) {
                     android.util.Log.w("BirNefes", "Video connection failed: " + error.getClass().getSimpleName());
                     response = null;

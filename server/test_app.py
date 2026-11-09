@@ -700,4 +700,374 @@ class WorkPassTests(unittest.TestCase):
         self.assertIn('YEMİN EDERİM', body)
         self.assertEqual(self.store.work_reports(at('2026-10-02T09:00:00')), 0)
 
+def ruleset(changes=None):
+    rules = app.defaults()
+    for path, value in (changes or {}).items():
+        *parents, key = path.split('.')
+        node = rules
+        for name in parents:
+            node = node[name]
+        node[key] = value
+    return rules
+
+class RulesPolicyTests(unittest.TestCase):
+    setUp, tearDown, start = PolicyTests.setUp, PolicyTests.tearDown, PolicyTests.start
+    def save(self, changes, account=1, base=0, now=None):
+        status, body = self.store.save_rules(account, ruleset(changes), base, now=self.t if now is None else now)
+        self.assertEqual(status, 200, body)
+        return body
+
+    def test_ac2_rights_change_waits_for_renewal(self):
+        body = self.save({'rights': 3})
+        self.assertEqual((body['current']['version'], body['pending']['version'], body['pending']['effectiveAt']),
+                         (0, 1, at('2026-10-02T03:00:00')))
+        for n in range(4):
+            r = self.start('phone', self.t+n*1231000, f'attempt-00000000{n:02}')
+        self.assertEqual((r['state'], r['used'], r['rulesVersion']), ('allowed', 4, 0))
+        t = at('2026-10-02T10:00:00')
+        for n in range(3):
+            r = self.start('phone', t+n*1231000, f'attempt-00000001{n:02}')
+        self.assertEqual((r['used'], r['remaining'], r['rulesVersion']), (3, 0, 1))
+        r = self.store.request(1, 'phone', 'enter', 'attempt-0000000199', r['expiresAt'])
+        self.assertEqual(r['state'], 'exhausted')
+
+    def test_ac3_window_and_wait(self):
+        self.save({'windowMin': 10, 'waitSec': 60})
+        t = at('2026-10-02T10:00:00')
+        r = self.store.request(1, 'phone', 'enter', 'attempt-0000000001', t)
+        self.assertEqual((r['state'], r['readyAt']), ('waiting', t+60000))
+        self.assertEqual(self.store.request(1, 'phone', 'complete', 'attempt-0000000001', t+59999)['state'], 'waiting')
+        r = self.store.request(1, 'phone', 'complete', 'attempt-0000000001', t+60000)
+        self.assertEqual((r['state'], r['expiresAt']), ('allowed', t+60000+600000))
+
+    def test_ac4_night_start_and_window(self):
+        self.save({'nightStart': '21:00', 'nightWindowMin': 10})
+        r = self.start('phone', at('2026-10-02T20:54:30'))
+        self.assertEqual(r['expiresAt'], at('2026-10-02T21:10:00'))
+        t = at('2026-10-03T21:30:00')
+        r = self.start('phone', t, 'attempt-0000000002')
+        self.assertEqual((r['state'], r['expiresAt'], r['remaining']), ('allowed', t+30000+600000, 0))
+
+    def test_ac4_zero_night_window_gives_no_night_right(self):
+        self.save({'nightWindowMin': 0})
+        r = self.store.request(1, 'phone', 'enter', 'attempt-0000000001', at('2026-10-02T23:00:00'))
+        self.assertEqual((r['state'], r['remaining']), ('exhausted', 0))
+        r = self.start('phone', at('2026-10-02T22:20:00'), 'attempt-0000000002')
+        self.assertEqual(r['expiresAt'], at('2026-10-02T22:30:00'))
+
+    def test_ac5_later_renewal_keeps_yesterday_until_it(self):
+        self.save({'renewal': '05:00'})
+        self.start('phone', self.t)
+        r = self.store.request(1, 'phone', 'status', now=at('2026-10-02T02:00:00'))
+        self.assertEqual((r['rulesVersion'], r['renewalAt']), (0, at('2026-10-02T03:00:00')))
+        r = self.store.request(1, 'phone', 'status', now=at('2026-10-02T04:00:00'))
+        self.assertEqual((r['rulesVersion'], r['budgetDay'], r['used'], r['renewalAt']),
+                         (1, '2026-10-01', 1, at('2026-10-02T05:00:00')))
+        r = self.store.request(1, 'phone', 'status', now=at('2026-10-02T05:00:00'))
+        self.assertEqual((r['budgetDay'], r['used'], r['remaining']), ('2026-10-02', 0, 5))
+
+    def test_ac6_validation(self):
+        cases = [({'renewal': '23:00', 'nightStart': '22:30'}, 'renewal'), ({'nightStart': '13:00'}, 'nightStart'),
+                 ({'nightStart': '22:15'}, 'nightStart'), ({'rights': 11}, 'rights'), ({'rights': True}, 'rights'),
+                 ({'windowMin': 7}, 'windowMin'), ({'waitSec': 301}, 'waitSec'), ({'nightWindowMin': 25}, 'nightWindowMin'),
+                 ({'urgentCount': 9}, 'urgentCount'), ({'urgentMin': 35}, 'urgentMin'),
+                 ({'video.weekday.closedFrom': '14:00'}, 'video.weekday.closedFrom'),
+                 ({'video.weekday.closedUntil': '15:00'}, 'video.weekday.closedUntil'),
+                 ({'video.weekday.meteredFrom': '04:00'}, 'video.weekday.meteredFrom'),
+                 ({'video.weekday.meteredUntil': '23:00'}, 'video.weekday.meteredUntil'),
+                 ({'video.weekday.meteredUntil': None}, 'video.weekday.meteredUntil'),
+                 ({'video.weekend.budgetMin': 5}, 'video.weekend.budgetMin'),
+                 ({'video.weekday.budgetMin': 125}, 'video.weekday.budgetMin'),
+                 ({'work.minutes': [30, 15]}, 'work.minutes'), ({'work.minutes': []}, 'work.minutes'),
+                 ({'work.minutes': [20]}, 'work.minutes'), ({'work.dailyMin': 20}, 'work.dailyMin'),
+                 ({'work.enabled': 1}, 'work.enabled'), ({'work.summary': None}, 'work.summary'),
+                 ({'extra': 1}, 'extra'), ({'video.weekday.other': 1}, 'video.weekday.other'), ({'video': []}, 'video')]
+        for changes, field in cases:
+            self.assertEqual(self.store.save_rules(1, ruleset(changes), 0, now=self.t), (400, {'error': 'invalid_rules', 'field': field}), changes)
+        missing = ruleset(); del missing['work']
+        self.assertEqual(self.store.save_rules(1, missing, 0, now=self.t)[1]['field'], 'work')
+        self.assertEqual(self.store.save_rules(1, None, 0, now=self.t)[1]['field'], 'rules')
+        # Edges that are allowed: no night video close, midnight renewal, night start an hour before renewal.
+        for changes in ({'video.weekend.closedFrom': None}, {'renewal': '00:00', 'video.weekday.closedUntil': '00:00'},
+                        {'nightStart': '02:00'}, {'video.weekday.meteredFrom': '05:00', 'video.weekday.meteredUntil': '22:30'}):
+            self.assertEqual(self.store.save_rules(1, ruleset(changes), 0, dry_run=True, now=self.t)[0], 200, changes)
+
+    def test_ac7_weekday_metered_hours(self):
+        self.save({'video.weekday.meteredFrom': '09:00', 'video.weekday.meteredUntil': '12:00', 'video.weekday.budgetMin': 30})
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-02T08:30:00'))
+        self.assertEqual((r['state'], r['mode'], r['nextChangeAt']), ('allowed', 'free', at('2026-10-02T09:00:00')))
+        self.assertEqual(r['expiresAt'], at('2026-10-02T09:00:00'))
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-02T10:00:00'))
+        self.assertEqual((r['state'], r['mode'], r['videoRemainingMs']), ('allowed', 'metered', 1_800_000))
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-02T12:30:00'))
+        self.assertEqual((r['state'], r['mode'], r['nextChangeAt']), ('allowed', 'free', at('2026-10-02T22:30:00')))
+        # After the close the next change is the next day's opening.
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-02T23:00:00'))
+        self.assertEqual((r['mode'], r['nextChangeAt']), ('night', at('2026-10-03T05:00:00')))
+
+    def test_ac8_weekend_metered_hours(self):
+        self.save({'video.weekend.meteredFrom': '10:00', 'video.weekend.meteredUntil': '12:00', 'video.weekend.budgetMin': 20})
+        r = self.store.request(1, 'chrome', 'video_enter', 'video-0000000001', at('2026-10-03T11:00:00'))
+        self.assertEqual((r['state'], r['mode'], r['videoRemainingMs']), ('allowed', 'metered', 1_200_000))
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-03T09:00:00'))
+        self.assertEqual(r['mode'], 'free')
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-04T22:29:00'))
+        self.assertEqual(r['mode'], 'free')
+        r = self.store.request(1, 'chrome', 'video_status', now=at('2026-10-04T22:30:00'))
+        self.assertEqual((r['state'], r['mode']), ('exhausted', 'night'))
+
+    def test_ac18_lower_urgent_count(self):
+        for n in range(3):
+            self.store.request(1, 'phone', 'emergency', f'urgent-00000000{n:02}', self.t+n*1200001)
+        self.save({'urgentCount': 2})
+        t = at('2026-10-02T10:00:00')
+        r = self.store.request(1, 'phone', 'status', now=t)
+        self.assertEqual(r['emergencyRemaining'], 0)
+        r = self.store.request(1, 'phone', 'emergency', 'urgent-0000000099', t)
+        self.assertEqual((r['state'], r['emergencyRemaining']), ('emergency_exhausted', 0))
+        self.assertEqual(self.store.request(1, 'chrome', 'video_status', now=t)['emergencyRemaining'], 0)
+
+    def test_ac18_urgent_minutes(self):
+        self.save({'urgentMin': 30})
+        t = at('2026-10-02T23:00:00')
+        r = self.store.request(1, 'phone', 'emergency', 'urgent-0000000001', t)
+        self.assertEqual(r['expiresAt'], t+1_800_000)
+
+    def test_ac19_urgent_charge_uses_started(self):
+        t = at('2026-10-02T10:00:00')
+        for account in (1, 2, 3):
+            self.save({'urgentMin': 30}, account)
+            self.store.request(account, 'chrome', 'video_enter', 'video-0000000001', t)
+        # 1: a pass issued under today's 30 minutes.
+        self.assertEqual(self.store.request(1, 'phone', 'emergency', 'urgent-0000000001', t+3000)['expiresAt'], t+3000+1_800_000)
+        with self.store.connect() as db:
+            # 2: a pass issued under yesterday's 20 minutes; 3: a row from before the started column.
+            db.execute("UPDATE quota SET kind='emergency', end=?, started=?, session=1 WHERE account_id=2", (t+3000+1_200_000, t+3000))
+            db.execute("UPDATE quota SET kind='emergency', end=?, started=0, session=1 WHERE account_id=3", (t+3000+1_200_000,))
+        for account in (1, 2, 3):
+            r = self.store.request(account, 'chrome', 'video_tick', 'video-0000000001', t+4000)
+            self.assertEqual((r['mode'], r['videoRemainingMs']), ('emergency', 597_000), account)
+            with self.store.connect() as db:
+                self.assertEqual(db.execute('SELECT spent FROM video_quota WHERE account_id=?', (account,)).fetchone()[0], 3000)
+
+    def test_ac19_started_column_migrates(self):
+        path = self.temp.name+'/old.db'
+        with sqlite3.connect(path) as db:
+            db.execute("CREATE TABLE quota (account_id INTEGER PRIMARY KEY, day TEXT NOT NULL, used INTEGER NOT NULL, night INTEGER NOT NULL, end INTEGER NOT NULL, session INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'normal')")
+            db.execute("INSERT INTO quota VALUES(1,'2026-10-01',2,0,0,4,'normal')")
+        store = Store(path)
+        self.assertEqual(store.request(1, 'phone', 'status', now=self.t)['used'], 2)
+        with store.connect() as db:
+            self.assertEqual(db.execute('SELECT started FROM quota').fetchone()[0], 0)
+
+    def test_ac16_stale_single_pending_and_cancel(self):
+        self.save({'rights': 4})
+        self.assertEqual(self.store.save_rules(1, ruleset({'rights': 3}), 0, now=self.t), (409, {'error': 'stale'}))
+        body = self.save({'rights': 3}, base=1, now=self.t+1000)
+        self.assertEqual((body['pending']['version'], body['pending']['rules']['rights']), (2, 3))
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM rule_sets').fetchone()[0], 1)
+        body = self.store.cancel_rules(1, self.t+2000)
+        self.assertEqual((body['pending'], body['current']['version']), (None, 0))
+        self.save({'rights': 2}, base=0, now=self.t+3000)
+        # Once in force a set stays as history; a newer one is based on it.
+        self.assertEqual(self.store.rules(1, at('2026-10-02T03:00:00'))['current']['rules']['rights'], 2)
+        self.assertEqual(self.store.save_rules(1, ruleset({'rights': 1}), 0, now=at('2026-10-02T04:00:00'))[1], {'error': 'stale'})
+        body = self.save({'rights': 1}, base=1, now=at('2026-10-02T04:00:00'))
+        self.assertEqual((body['current']['version'], body['current']['effectiveAt'], body['pending']['version'], body['pending']['effectiveAt']),
+                         (1, at('2026-10-02T03:00:00'), 2, at('2026-10-03T03:00:00')))
+
+    def test_ac17_dry_run_writes_nothing(self):
+        status, body = self.store.save_rules(1, ruleset({'video.weekday.budgetMin': 20, 'rights': 4}), 0, dry_run=True, now=self.t)
+        self.assertEqual((status, body), (200, dict(looser=True, changes=['rights', 'video.weekday.budgetMin'],
+                                                    effectiveAt=at('2026-10-02T03:00:00'), allowed=True)))
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM rule_sets').fetchone()[0], 0)
+        self.assertIsNone(self.store.rules(1, self.t)['pending'])
+
+class RulesGuardianTests(unittest.TestCase):
+    setUp, tearDown, verified, release = GuardianTests.setUp, GuardianTests.tearDown, GuardianTests.verified, GuardianTests.release
+    chrome = WorkPassTests.chrome
+    OATH = WorkPassTests.OATH
+    def save(self, changes, base=0, now=None, dry_run=False):
+        return self.store.save_rules(self.account, ruleset(changes), base, dry_run, now=self.t if now is None else now)
+    def count(self):
+        with self.store.connect() as db:
+            return db.execute('SELECT COUNT(*) FROM rule_sets').fetchone()[0]
+
+    def test_ac9_work_disabled_and_minutes(self):
+        self.assertEqual(self.save({'work.enabled': False})[0], 200)
+        device = self.chrome()
+        t = at('2026-10-02T10:00:00')
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, t), (409, {'error': 'disabled'}))
+        self.assertEqual(self.save({'work.minutes': [15, 45]}, base=1, now=t)[0], 200)
+        t = at('2026-10-05T10:00:00')
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, t), (400, {'error': 'invalid_work'}))
+        status, view = self.store.start_work(self.account, device, 45, 'Ders', self.OATH, t)
+        self.assertEqual((status, view['workUntil']), (200, t+2_700_000))
+
+    def test_ac9_daily_minutes(self):
+        self.assertEqual(self.save({'work.dailyMin': 60})[0], 200)
+        device = self.chrome()
+        t = at('2026-10-02T10:00:00')
+        status, view = self.store.start_work(self.account, device, 90, 'Ders', self.OATH, t)
+        self.assertEqual((status, view['workUntil'], view['workLeftMs']), (200, t+3_600_000, 0))
+        self.assertEqual(self.store.start_work(self.account, device, 15, 'Ders', self.OATH, t+3_600_000)[1], {'error': 'work_cap'})
+
+    def test_ac10_work_only_in_metered_hours(self):
+        self.assertEqual(self.save({'video.weekday.meteredFrom': '09:00', 'video.weekday.meteredUntil': '12:00', 'video.weekday.budgetMin': 30})[0], 200)
+        device = self.chrome()
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, at('2026-10-02T13:00:00')), (409, {'error': 'not_metered'}))
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, at('2026-10-02T08:30:00')), (409, {'error': 'not_metered'}))
+        self.assertEqual(self.store.start_work(self.account, device, 60, 'Ders', self.OATH, at('2026-10-02T10:00:00'))[0], 200)
+
+    def test_ac11_no_summary(self):
+        self.assertEqual(self.save({'work.summary': False})[0], 200)
+        self.verified()
+        device = self.chrome()
+        self.sent.clear()
+        t = at('2026-10-02T10:00:00')
+        self.store.start_work(self.account, device, 30, 'Ders', self.OATH, t)
+        self.assertEqual(self.store.work_reports(at('2026-10-02T22:30:00')), 0)
+        self.assertEqual(self.sent, [])
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT reported FROM work_passes').fetchone()[0], 1)
+
+    def test_ac11_summary_follows_that_days_close(self):
+        self.verified()
+        self.assertEqual(self.save({'video.weekday.closedFrom': '21:00', 'nightStart': '21:00'})[0], 200)
+        device = self.chrome()
+        self.sent.clear()
+        self.store.start_work(self.account, device, 30, 'Ders', self.OATH, at('2026-10-02T10:00:00'))
+        self.assertEqual(self.store.work_reports(at('2026-10-02T20:59:00')), 0)
+        self.assertEqual(self.store.work_reports(at('2026-10-02T21:00:00')), 1)
+        self.assertEqual(self.sent[-1][3], app.WORK_SUBJECT)
+
+    def test_ac12_locked_rejects_loosening(self):
+        self.verified()
+        self.assertEqual(self.save({'rights': 6}), (409, {'error': 'locked'}))
+        self.assertEqual(self.count(), 0)
+        status, body = self.save({'rights': 4})
+        self.assertEqual((status, body['pending']['version'], body['pending']['looser'], body['locked']), (200, 1, False, True))
+
+    def test_ac13_release_allows_loosening(self):
+        self.verified()
+        self.store.decide(self.release(), '1h', self.t)
+        status, body = self.save({'rights': 6}, now=self.t+1000)
+        self.assertEqual((status, body['pending']['looser'], body['locked']), (200, True, False))
+        self.assertTrue(self.store.guard(self.account, self.t+3_600_000)['locked'])
+        r = self.store.request(self.account, 'phone', 'status', now=at('2026-10-02T03:00:00'))
+        self.assertEqual((r['rulesVersion'], r['remaining'], r['rules']['rights']), (1, 6, 6))
+
+    def test_ac14_mixed_change_is_looser(self):
+        self.verified()
+        self.assertEqual(self.save({'rights': 4, 'video.weekday.budgetMin': 20}), (409, {'error': 'locked'}))
+        # A free slice where it was metered, or a shorter study day turned off and on again.
+        self.assertEqual(self.save({'video.weekday.meteredUntil': '16:00'}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'video.weekend.closedFrom': None}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'work.summary': False}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'work.minutes': [15, 30, 60, 120]}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'nightStart': '23:00'}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'waitSec': 25}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'rights': 4, 'video.weekday.budgetMin': 20}, dry_run=True)[1]['allowed'], False)
+        self.assertEqual(self.count(), 0)
+        # Tighter on every axis is accepted.
+        tight = {'rights': 4, 'waitSec': 60, 'nightStart': '22:00', 'video.weekday.meteredFrom': '07:00',
+                 'video.weekday.closedFrom': '21:00', 'work.minutes': [15, 30], 'work.enabled': False}
+        status, body = self.save(tight)
+        self.assertEqual((status, body['pending']['looser']), (200, False))
+
+    def test_ac15_locked_renewal_change(self):
+        self.verified()
+        self.assertEqual(self.save({'renewal': '02:00'}), (409, {'error': 'locked'}))
+        self.assertEqual(self.save({'renewal': '04:00'}), (409, {'error': 'locked'}))
+        self.assertEqual(self.count(), 0)
+
+    def test_ac15_pending_loosening_survives_lock(self):
+        self.assertEqual(self.save({'rights': 6})[0], 200)
+        self.verified()
+        self.assertTrue(self.store.guard(self.account, at('2026-10-02T03:00:00'))['locked'])
+        r = self.store.request(self.account, 'phone', 'status', now=at('2026-10-02T03:00:00'))
+        self.assertEqual(r['remaining'], 6)
+        # Cancelling is always allowed, also while locked.
+        self.assertEqual(self.save({'rights': 4}, base=1, now=at('2026-10-02T04:00:00'))[0], 200)
+        self.assertIsNone(self.store.cancel_rules(self.account, at('2026-10-02T04:00:00'))['pending'])
+
+    def test_ac20_locked_install_cannot_move(self):
+        self.verified()
+        other = self.store.register('chrome')
+        code = self.store.pair_code(other['account'], self.t)['code']
+        self.assertEqual(self.store.pair(code, 'android', INSTALL, self.t), {'error': 'locked'})
+        self.assertEqual(self.store.register('android', INSTALL)['account'], self.account)
+        # Same account while locked is fine; after a release the move works and the code is still valid.
+        own = self.store.pair_code(self.account, self.t)['code']
+        self.assertEqual(self.store.pair(own, 'android', INSTALL, self.t)['account'], self.account)
+        self.store.decide(self.release(), '1h', self.t)
+        self.assertEqual(self.store.pair(code, 'android', INSTALL, self.t+1000)['account'], other['account'])
+
+class RulesHttpTests(unittest.TestCase):
+    setUp, tearDown, post = HttpTests.setUp, HttpTests.tearDown, HttpTests.post
+    def raw(self, path, data, token):
+        request = urllib.request.Request(f'http://127.0.0.1:{self.server.server_port}{path}', data, method='POST')
+        request.add_header('Authorization', 'Bearer '+token)
+        try:
+            with urllib.request.urlopen(request) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            with error:
+                return error.code, json.load(error)
+
+    def test_ac21_answers_carry_rules(self):
+        phone = self.post('/v1/register', dict(kind='android', install=INSTALL))[1]['token']
+        for path, method, body in (('/v1/status', 'GET', None), ('/v1/video-status', 'GET', None),
+                                   ('/v1/enter', 'POST', dict(attempt='attempt-0000000001')),
+                                   ('/v1/video-enter', 'POST', dict(attempt='video-0000000001'))):
+            status, r = self.post(path, body, phone, method)
+            self.assertEqual((status, r['rulesVersion'], r['rules']), (200, 0, app.DEFAULT_RULES), path)
+            for key in ('state', 'serverNow', 'expiresAt', 'emergencyRemaining', 'budgetDay', 'renewalAt', 'remaining'):
+                self.assertIn(key, r)
+        status, view = self.post('/v1/rules', None, phone, 'GET')
+        self.assertEqual((status, view['current'], view['pending'], view['defaults'], view['locked']),
+                         (200, dict(version=0, effectiveAt=0, rules=app.DEFAULT_RULES), None, app.DEFAULT_RULES, False))
+        status, body = self.post('/v1/rules', dict(rules=ruleset({'rights': 4}), baseVersion=0, dryRun=True), phone)
+        self.assertEqual((status, body['changes'], body['looser'], body['allowed']), (200, ['rights'], False, True))
+        status, body = self.post('/v1/rules', dict(rules=ruleset({'rights': 4}), baseVersion=0), phone)
+        self.assertEqual((status, body['pending']['version'], body['pending']['rules']['rights']), (200, 1, 4))
+        self.assertEqual(self.post('/v1/rules', dict(rules=ruleset({'rights': 3}), baseVersion=0), phone), (409, {'error': 'stale'}))
+        status, body = self.post('/v1/rules-cancel', {}, phone)
+        self.assertEqual((status, body['pending']), (200, None))
+
+    def test_ac20_pair_locked_over_http(self):
+        phone = self.post('/v1/register', dict(kind='android', install=INSTALL))[1]
+        store = self.server.store
+        store.set_guardian(phone['account'], 'abla@example.com')
+        store.decide(token_of(self.sent[-1]), 'confirm')
+        other = self.post('/v1/register', dict(kind='android', install='b'*64))[1]
+        code = self.post('/v1/pair-code', token=other['token'])[1]['code']
+        self.assertEqual(self.post('/v1/pair', dict(code=code, kind='android', install=INSTALL)), (403, {'error': 'locked'}))
+        self.assertEqual(self.post('/v1/pair', dict(code=code, kind='chrome'))[0], 200)
+
+    def test_ac22_bad_bodies(self):
+        phone = self.post('/v1/register', dict(kind='android', install=INSTALL))[1]['token']
+        self.assertEqual(self.raw('/v1/rules', b'{"rules":', phone), (400, {'error': 'invalid_body'}))
+        self.assertEqual(self.raw('/v1/rules', b'[]', phone), (400, {'error': 'invalid_body'}))
+        self.assertEqual(self.post('/v1/rules', dict(rules=ruleset(), baseVersion=0, extra=1), phone), (400, {'error': 'invalid_body'}))
+        self.assertEqual(self.post('/v1/rules', dict(rules=ruleset(), baseVersion='0'), phone), (400, {'error': 'invalid_body'}))
+        self.assertEqual(self.post('/v1/rules', dict(rules=ruleset(), baseVersion=0, dryRun=1), phone), (400, {'error': 'invalid_body'}))
+        self.assertEqual(self.post('/v1/rules', dict(rules=ruleset({'extra': 1}), baseVersion=0), phone),
+                         (400, {'error': 'invalid_rules', 'field': 'extra'}))
+        self.assertEqual(self.post('/v1/rules', dict(rules=ruleset({'renewal': '23:00'}), baseVersion=0), phone),
+                         (400, {'error': 'invalid_rules', 'field': 'renewal'}))
+        big = json.dumps(dict(rules=ruleset(), baseVersion=0, pad='x'*4100)).encode()
+        self.assertEqual(self.raw('/v1/rules', big, phone), (400, {'error': 'invalid_body'}))
+        self.assertEqual(self.post('/v1/rules', None, None, 'GET')[0], 401)
+
+    def test_ac23_approve_page_knows_extra(self):
+        with urllib.request.urlopen(f'http://127.0.0.1:{self.server.server_port}/approve') as response:
+            page = response.read().decode()
+        kinds = re.search(r'const KIND = \{(.*?)\n\};', page, re.S).group(1)
+        self.assertRegex(kinds, r"\n  extra: '[^']+'")
+        for kind in app.DECISIONS:
+            self.assertIn(f'\n  {kind}: ', kinds)
+
 if __name__=='__main__': unittest.main()

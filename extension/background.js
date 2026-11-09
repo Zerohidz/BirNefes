@@ -84,7 +84,8 @@ async function extra(message) {
 }
 
 // A study pass opens metered video after a typed oath; only the popup can ask for it.
-const WORK_MINUTES = [15, 30, 60, 90];
+// The account's rules choose among these lengths; the server checks the choice again.
+const WORK_MINUTES = [15, 30, 45, 60, 90, 120];
 async function work(message) {
   const start = message.operation === 'video-work';
   if (start && (!WORK_MINUTES.includes(message.minutes) || typeof message.purpose !== 'string' || typeof message.oath !== 'string'
@@ -108,6 +109,22 @@ async function work(message) {
   return {workUntil: result.workUntil, workLeftMs: result.workLeftMs, workToday: Array.isArray(result.workToday) ? result.workToday : []};
 }
 
+// The account's rule sets (current and pending), shown read-only in the popup.
+async function rules() {
+  const token = await deviceToken();
+  if (!token) return {error: 'unpaired'};
+  const response = await fetch(`${BIRNEFES_CONFIG.url}/v1/rules`, {
+    headers: {Authorization: `Bearer ${token}`},
+    cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(12000)
+  });
+  if (response.status === 401) return {error: 'unpaired'};
+  if (response.status === 404) return {error: 'unsupported'};
+  if (!response.ok) throw new Error('server');
+  const result = await response.json();
+  if (!result?.current || typeof result.current.rules !== 'object' || !Number.isFinite(result.serverNow)) throw new Error('protocol');
+  return {current: result.current, pending: result.pending || null, defaults: result.defaults, locked: result.locked === true, serverNow: result.serverNow};
+}
+
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   const fromTarget = sender.tab && birNefesTarget(sender.url);
   const fromExtension = sender.url?.startsWith(chrome.runtime.getURL(''));
@@ -128,6 +145,11 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (['extra','extra-end'].includes(message?.operation)) {
     if (!fromExtension) return false;
     extra(message).then(reply, () => reply({error: 'offline'}));
+    return true;
+  }
+  if (message?.operation === 'rules') {
+    if (!fromExtension) return false;
+    rules().then(reply, () => reply({error: 'offline'}));
     return true;
   }
   if (['video-work','video-work-end'].includes(message?.operation)) {

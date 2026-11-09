@@ -86,6 +86,37 @@ final class Ui {
         params.topMargin = dp(context, value);
         return params;
     }
+    /** A rounded panel for grouped content. */
+    static LinearLayout card(Context context) {
+        LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        int padding = dp(context, 16);
+        card.setPadding(padding, padding, padding, padding);
+        card.setBackground(shape(context, SECONDARY, STROKE));
+        return card;
+    }
+    /** A setting row, label left and its value right, added to parent; tapping it opens the choice. */
+    static LinearLayout row(Context context, LinearLayout parent, String label, String value, View.OnClickListener click) {
+        LinearLayout row = new LinearLayout(context);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(dp(context, BUTTON_HEIGHT_DP));
+        row.setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8));
+        row.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(40, 235, 242, 238)),
+            shape(context, SECONDARY, STROKE), shape(context, Color.WHITE, Color.TRANSPARENT)));
+        row.addView(text(context, label, 16, false), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView shown = text(context, value, 16, true);
+        shown.setTextColor(PRIMARY);
+        shown.setGravity(Gravity.END);
+        LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        valueParams.leftMargin = dp(context, 12);
+        row.addView(shown, valueParams);
+        row.setContentDescription(label + ": " + value);
+        if (click != null) row.setOnClickListener(click);
+        else { row.setEnabled(false); row.setAlpha(0.6f); }
+        parent.addView(row, topMargin(context, 8));
+        return row;
+    }
     /** The theme capitalizes dialog buttons, and without a Turkish locale it gets İ wrong. */
     static AlertDialog show(AlertDialog.Builder builder) {
         AlertDialog dialog = builder.show();

@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Bir Nefes \u2014 ekran molas\u0131",
-  "version": "1.8.2",
+  "version": "1.9.0",
   "update_url": "https://birnefes.zerohidz.com/updates.xml",
-  "description": "Telefon uygulamalar\u0131 ve se\u00e7ili siteler i\u00e7in ortak g\u00fcnl\u00fck haklar. Ayda 4 acele ge\u00e7i\u015fi.",
+  "description": "Telefon uygulamalar\u0131 ve se\u00e7ili siteler i\u00e7in ortak g\u00fcnl\u00fck haklar. Ayl\u0131k acele ge\u00e7i\u015fi.",
   "icons": {
     "16": "icon-16.png",
     "32": "icon-32.png",
@@ -42,6 +42,7 @@
       ],
       "js": [
         "sites.js",
+        "rules.js",
         "video.js",
         "content.js"
       ],
@@ -63,6 +64,7 @@
       ],
       "js": [
         "sites.js",
+        "rules.js",
         "video.js",
         "content.js"
       ],

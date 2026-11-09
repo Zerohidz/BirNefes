@@ -92,6 +92,90 @@ final class Account {
             .putBoolean("endPending", answer.optBoolean("extraEndPending"))
             .commit();
     }
+    /** The rules in force as the server last reported them; DEFAULT in a local-only build or before any answer. */
+    static Rules rules(Context context) {
+        if (!SyncConfig.ENABLED) return Rules.defaults();
+        String saved = context.getApplicationContext().getSharedPreferences("rules", Context.MODE_PRIVATE).getString("current", null);
+        if (saved != null) try { return rulesFrom(new JSONObject(saved)); } catch (Exception ignored) { }
+        return Rules.defaults();
+    }
+    /** Saves the rules of a server answer: quota answers carry rules/rulesVersion, /v1/rules carries current. Malformed keeps the last. */
+    static void rememberRules(Context context, JSONObject answer) {
+        if (answer == null) return;
+        JSONObject current = answer.optJSONObject("current");
+        JSONObject rules = current != null ? current.optJSONObject("rules") : answer.optJSONObject("rules");
+        if (rules == null) return;
+        try { rulesFrom(rules); } catch (Exception error) { return; }
+        context.getApplicationContext().getSharedPreferences("rules", Context.MODE_PRIVATE).edit()
+            .putString("current", rules.toString())
+            .putInt("version", current != null ? current.optInt("version") : answer.optInt("rulesVersion"))
+            .commit();
+    }
+    static Response rulesView(Context context) throws IOException {
+        Response response = authorized(context, "GET", "/v1/rules", null);
+        if (response.status == 200) rememberRules(context, response.body);
+        return response;
+    }
+    /** Saves a rule set, or with dryRun only asks what it would change. */
+    static Response saveRules(Context context, Rules rules, int baseVersion, boolean dryRun) throws IOException {
+        try {
+            JSONObject body = new JSONObject().put("rules", rulesJson(rules)).put("baseVersion", baseVersion);
+            if (dryRun) body.put("dryRun", true);
+            Response response = authorized(context, "POST", "/v1/rules", body);
+            if (response.status == 200 && !dryRun) rememberRules(context, response.body);
+            return response;
+        } catch (org.json.JSONException error) { throw new IOException(error); }
+    }
+    static Response cancelRules(Context context) throws IOException {
+        Response response = authorized(context, "POST", "/v1/rules-cancel", new JSONObject());
+        if (response.status == 200) rememberRules(context, response.body);
+        return response;
+    }
+    private static int time(JSONObject json, String key) throws org.json.JSONException {
+        return json.isNull(key) ? Rules.NONE : Rules.parse(json.getString(key));
+    }
+    private static Object wireTime(int time) { return time == Rules.NONE ? JSONObject.NULL : Rules.wire(time); }
+    /** The §4.1 JSON to Rules; a missing key, wrong type or invalid value throws. */
+    static Rules rulesFrom(JSONObject json) throws org.json.JSONException {
+        Rules rules = new Rules();
+        rules.rights = json.getInt("rights"); rules.windowMin = json.getInt("windowMin"); rules.waitSec = json.getInt("waitSec");
+        rules.renewal = Rules.parse(json.getString("renewal")); rules.nightStart = Rules.parse(json.getString("nightStart"));
+        rules.nightWindowMin = json.getInt("nightWindowMin");
+        rules.urgentCount = json.getInt("urgentCount"); rules.urgentMin = json.getInt("urgentMin");
+        JSONObject video = json.getJSONObject("video");
+        Rules.Day[] days = new Rules.Day[2];
+        for (int i = 0; i < 2; i++) {
+            JSONObject day = video.getJSONObject(Rules.DAYS[i]);
+            days[i] = new Rules.Day(time(day, "closedFrom"), Rules.parse(day.getString("closedUntil")),
+                time(day, "meteredFrom"), time(day, "meteredUntil"), day.getInt("budgetMin"));
+        }
+        rules.weekday = days[0]; rules.weekend = days[1];
+        JSONObject work = json.getJSONObject("work");
+        rules.workEnabled = work.getBoolean("enabled");
+        org.json.JSONArray minutes = work.getJSONArray("minutes");
+        rules.workMinutes = new int[minutes.length()];
+        for (int i = 0; i < minutes.length(); i++) rules.workMinutes[i] = minutes.getInt(i);
+        rules.workDailyMin = work.getInt("dailyMin");
+        rules.workSummary = work.getBoolean("summary");
+        String invalid = rules.invalid();
+        if (invalid != null) throw new org.json.JSONException("invalid " + invalid);
+        return rules;
+    }
+    static JSONObject rulesJson(Rules rules) throws org.json.JSONException {
+        JSONObject video = new JSONObject();
+        for (String key : Rules.DAYS) {
+            Rules.Day day = rules.day(key);
+            video.put(key, new JSONObject().put("closedFrom", wireTime(day.closedFrom)).put("closedUntil", Rules.wire(day.closedUntil))
+                .put("meteredFrom", wireTime(day.meteredFrom)).put("meteredUntil", wireTime(day.meteredUntil)).put("budgetMin", day.budgetMin));
+        }
+        org.json.JSONArray minutes = new org.json.JSONArray();
+        for (int value : rules.workMinutes) minutes.put(value);
+        return new JSONObject().put("rights", rules.rights).put("windowMin", rules.windowMin).put("waitSec", rules.waitSec)
+            .put("renewal", Rules.wire(rules.renewal)).put("nightStart", Rules.wire(rules.nightStart)).put("nightWindowMin", rules.nightWindowMin)
+            .put("urgentCount", rules.urgentCount).put("urgentMin", rules.urgentMin).put("video", video)
+            .put("work", new JSONObject().put("enabled", rules.workEnabled).put("minutes", minutes)
+                .put("dailyMin", rules.workDailyMin).put("summary", rules.workSummary));
+    }
     private static String register(String install) throws IOException {
         try {
             Response response = call("POST", "/v1/register", null, new JSONObject().put("kind", "android").put("install", install));
